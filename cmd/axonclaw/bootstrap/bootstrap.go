@@ -8,46 +8,48 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/Khan/genqlient/graphql"
 	"github.com/google/uuid"
 	"github.com/looplj/axonhub/axon/api"
+
+	"github.com/looplj/axonhub/cmd/axonclaw/prompts"
 )
 
 type Result struct {
-	AgentID         string
-	AgentName       string
-	Model           string
-	ReasoningEffort string
-	SystemPrompt    string
-	ThreadID        string
-	Tools           []*api.AgentBootstrapAgentBootstrapToolsAgentToolDefinition
-	Skills          []*api.AgentBootstrapAgentBootstrapSkillsAgentSkillDefinition
-	BuiltinTools    []*api.AgentBootstrapAgentBootstrapBuiltinToolsAgentBuiltinTool
-	AxonClawPath    string
-	SkillsRoot      string
-	ConfigDir       string
-	Date            string
-	Timezone        string
-	OS              string
+	AgentID           string
+	AgentName         string
+	CreatedByUserName string
+	Model             string
+	ReasoningEffort   string
+	ThreadID          string
+	Tools             []*api.AgentBootstrapAgentBootstrapToolsAgentToolDefinition
+	Skills            []*api.AgentBootstrapAgentBootstrapSkillsAgentSkillDefinition
+	BuiltinTools      []*api.AgentBootstrapAgentBootstrapBuiltinToolsAgentBuiltinTool
+	BuiltinSkills     []BuiltinSkill
+	Prompts           *prompts.Bootstrap
+	AxonClawPath      string
+	SkillsRoot        string
+	ConfigDir         string
+	Date              string
+	Timezone          string
+	OS                string
 }
 
-type SystemPromptData struct {
-	Date         string
-	Timezone     string
-	OS           string
-	Workspace    string
-	AgentID      string
-	AgentName    string
-	AxonClawPath string
-	ThreadID     string
-	SkillsRoot   string
-	ConfigDir    string
+type Params struct {
+	Workspace  string
+	SkillsRoot string
+	ConfigDir  string
 }
 
-func Do(ctx context.Context, client graphql.Client, data SystemPromptData) (*Result, error) {
+type BuiltinSkill struct {
+	Name    string
+	Enabled bool
+	Order   int
+}
+
+func Do(ctx context.Context, client graphql.Client, data Params) (*Result, error) {
 	resp, err := api.AgentBootstrap(ctx, client)
 	if err != nil {
 		return nil, fmt.Errorf("agent bootstrap failed: %w", err)
@@ -68,70 +70,84 @@ func Do(ctx context.Context, client graphql.Client, data SystemPromptData) (*Res
 
 	threadID := fmt.Sprintf("th-%s", uuid.New().String())
 
-	data.Date = now.Format("2006-01-02")
-	data.Timezone = timezone
-	data.OS = runtime.GOOS
-	data.AgentID = bootstrap.AgentID
-	data.AgentName = bootstrap.AgentName
-	data.AxonClawPath = getAxonClawPath()
-	data.ThreadID = threadID
+	axonClawPath := getAxonClawPath()
+	osName := humanReadableOS(runtime.GOOS)
 
-	systemPrompt, err := buildSystemPrompt(bootstrap.SystemPrompt, data)
-	if err != nil {
-		return nil, fmt.Errorf("build system prompt: %w", err)
+	tmplData := prompts.PromptEnv{
+		Date:              now.Format("2006-01-02"),
+		Timezone:          timezone,
+		OS:                osName,
+		Workspace:         data.Workspace,
+		ThreadID:          threadID,
+		AxonClawPath:      axonClawPath,
+		SkillsRoot:        data.SkillsRoot,
+		AgentID:           bootstrap.AgentID,
+		AgentName:         bootstrap.AgentName,
+		AgentInstanceName: bootstrap.AgentInstanceName,
+		CreatedByUserName: bootstrap.CreatedByUserName,
 	}
 
-	systemPrompt = appendSkillsToPrompt(systemPrompt, bootstrap.Skills)
+	prompt, err := prompts.Load(data.ConfigDir, &prompts.InitParams{
+		Env:                tmplData,
+		ServerSystemPrompt: bootstrap.SystemPrompt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("load bootstrap prompts: %w", err)
+	}
 
 	return &Result{
-		AgentID:         bootstrap.AgentID,
-		AgentName:       bootstrap.AgentName,
-		Model:           model,
-		ReasoningEffort: bootstrap.ReasoningEffort,
-		SystemPrompt:    systemPrompt,
-		ThreadID:        threadID,
-		Tools:           bootstrap.Tools,
-		Skills:          bootstrap.Skills,
-		BuiltinTools:    bootstrap.BuiltinTools,
-		AxonClawPath:    data.AxonClawPath,
-		SkillsRoot:      data.SkillsRoot,
-		ConfigDir:       data.ConfigDir,
-		Date:            data.Date,
-		Timezone:        data.Timezone,
-		OS:              data.OS,
+		AgentID:           bootstrap.AgentID,
+		AgentName:         bootstrap.AgentName,
+		CreatedByUserName: bootstrap.CreatedByUserName,
+		Model:             model,
+		ReasoningEffort:   bootstrap.ReasoningEffort,
+		ThreadID:          threadID,
+		Tools:             bootstrap.Tools,
+		Skills:            bootstrap.Skills,
+		BuiltinTools:      bootstrap.BuiltinTools,
+		BuiltinSkills:     convertBuiltinSkills(bootstrap.BuiltinSkills),
+		Prompts:           prompt,
+		AxonClawPath:      axonClawPath,
+		SkillsRoot:        data.SkillsRoot,
+		ConfigDir:         data.ConfigDir,
+		Date:              now.Format("2006-01-02"),
+		Timezone:          timezone,
+		OS:                osName,
 	}, nil
 }
 
-func buildSystemPrompt(tmplStr string, data SystemPromptData) (string, error) {
-	tmpl, err := template.New("system").Parse(tmplStr)
-	if err != nil {
-		return "", fmt.Errorf("parse system prompt template: %w", err)
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, data); err != nil {
-		return "", fmt.Errorf("execute system prompt template: %w", err)
-	}
-
-	return result.String(), nil
-}
-
-func appendSkillsToPrompt(basePrompt string, skills []*api.AgentBootstrapAgentBootstrapSkillsAgentSkillDefinition) string {
-	var sb strings.Builder
-	sb.WriteString(basePrompt)
-
-	for _, sk := range skills {
-		if sk.Name == "" || sk.Content == nil || strings.TrimSpace(*sk.Content) == "" {
+func convertBuiltinSkills(items []*api.AgentBootstrapAgentBootstrapBuiltinSkillsAgentBuiltinSkill) []BuiltinSkill {
+	out := make([]BuiltinSkill, 0, len(items))
+	for _, item := range items {
+		if item == nil || strings.TrimSpace(item.Name) == "" {
 			continue
 		}
-		sb.WriteString("\n\n---\n\n")
-		sb.WriteString("## Skill: ")
-		sb.WriteString(sk.Name)
-		sb.WriteString("\n\n")
-		sb.WriteString(*sk.Content)
+
+		out = append(out, BuiltinSkill{
+			Name:    item.Name,
+			Enabled: item.Enabled,
+			Order:   item.Order,
+		})
 	}
 
-	return sb.String()
+	return out
+}
+
+func humanReadableOS(goos string) string {
+	switch goos {
+	case "darwin":
+		return "macOS"
+	case "linux":
+		return "Linux"
+	case "windows":
+		return "Windows"
+	default:
+		if goos == "" {
+			return "Unknown"
+		}
+
+		return strings.ToUpper(goos[:1]) + goos[1:]
+	}
 }
 
 func getAxonClawPath() string {

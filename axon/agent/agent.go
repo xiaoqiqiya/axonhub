@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/looplj/axonhub/axon/bus"
 	axoncontext "github.com/looplj/axonhub/axon/context"
 	clawcontext "github.com/looplj/axonhub/axon/context"
@@ -36,10 +38,19 @@ type Config struct {
 	Model string
 	// MaxIterations limits tool-call loops (0 means unlimited).
 	MaxIterations int
-	// SystemPrompt is the base system prompt (deprecated, use SystemPrompts).
-	SystemPrompt string
 	// SystemPrompts is an array of system prompts that will be joined together.
 	SystemPrompts []string
+	// LoopDetector configures behavioral loop detection.
+	// When nil, default settings are used (enabled, threshold=5).
+	LoopDetector *LoopDetectorConfig
+}
+
+// Result holds the outcome of an agent run.
+type Result struct {
+	// Output is the final assistant text from the agent.
+	Output string
+	// Usage is the total token usage across all LLM calls.
+	Usage Usage
 }
 
 // Agent orchestrates LLM interactions with tool execution.
@@ -49,21 +60,21 @@ type Config struct {
 type Agent struct {
 	config atomic.Pointer[Config]
 
-	provider    Provider
-	bus         bus.EventBus
-	tools       *ToolRegistry
-	logger      *slog.Logger
-	middlewares []Middleware
+	provider        Provider
+	contextManager  ContextManager
+	bus             bus.EventBus
+	tools           *ToolRegistry
+	logger          *slog.Logger
+	middlewares     []Middleware
+	initialMessages []Message
 
-	messages []Message
-	msgMu    sync.RWMutex
+	// roundIndex groups messages that belong to the same LLM call round.
+	// Every LLM round assigns the same RoundIndex to all produced messages
+	// (assistant text/thinking, tool_use, and tool result), so downstream
+	// adapters can safely aggregate and compaction can keep them together.
+	roundIndex atomic.Int64
 
-	// requestIndex groups assistant messages that came from the same LLM call.
-	// It is an agent-maintained field: every LLM turn must assign the same
-	// RequestIndex to all assistant messages produced by that turn (text/thinking
-	// blocks and tool_use blocks), so downstream adapters can safely aggregate
-	// them into one "assistant message" at the provider API level.
-	requestIndex atomic.Int64
+	loopDetector *loopDetector
 
 	steeringQueue []Message
 	followUpQueue []Message
@@ -97,21 +108,28 @@ func WithMiddlewares(mws ...Middleware) Option {
 	}
 }
 
+// Middlewares returns a snapshot of all middlewares currently registered
+// on this agent. The returned slice is safe to read concurrently.
+func (a *Agent) Middlewares() []Middleware {
+	if len(a.middlewares) == 0 {
+		return nil
+	}
+
+	out := make([]Middleware, len(a.middlewares))
+	copy(out, a.middlewares)
+
+	return out
+}
+
+func WithContextManager(cm ContextManager) Option {
+	return func(a *Agent) {
+		a.contextManager = cm
+	}
+}
+
 func WithMessages(msgs []Message) Option {
 	return func(a *Agent) {
-		a.messages = make([]Message, len(msgs))
-		copy(a.messages, msgs)
-
-		// Continue request index numbering from persisted history to avoid collisions.
-		var maxRequestIndex int64
-		for i := range msgs {
-			if int64(msgs[i].RequestIndex) > maxRequestIndex {
-				maxRequestIndex = int64(msgs[i].RequestIndex)
-			}
-		}
-		if maxRequestIndex > 0 {
-			a.requestIndex.Store(maxRequestIndex)
-		}
+		a.initialMessages = cloneMessages(msgs)
 	}
 }
 
@@ -121,15 +139,36 @@ func New(config Config, provider Provider, opts ...Option) *Agent {
 		config.MaxIterations = defaultMaxIterations
 	}
 
+	ldCfg := DefaultLoopDetectorConfig()
+	if config.LoopDetector != nil {
+		ldCfg = *config.LoopDetector
+	}
+
 	a := &Agent{
-		provider: provider,
-		tools:    NewToolRegistry(),
-		logger:   slog.Default(),
+		provider:     provider,
+		tools:        NewToolRegistry(),
+		logger:       slog.Default(),
+		loopDetector: newLoopDetector(ldCfg),
 	}
 	a.config.Store(&config)
 
 	for _, opt := range opts {
 		opt(a)
+	}
+
+	if a.bus == nil {
+		a.bus = bus.NewInProcess()
+	}
+
+	if a.contextManager == nil {
+		a.contextManager = NewSimpleContextManager(a.initialMessages)
+	} else if len(a.initialMessages) > 0 {
+		a.contextManager.AddMessages(context.Background(), a.initialMessages...)
+	}
+
+	// Restore round index counter from persisted state.
+	if ri := a.contextManager.Snapshot().RoundIndex; ri > 0 {
+		a.roundIndex.Store(ri)
 	}
 
 	return a
@@ -168,33 +207,62 @@ func (a *Agent) RegisterTool(tool Tool) {
 	a.tools.Register(tool)
 }
 
-// emit publishes an event to the bus (if configured).
-func (a *Agent) emit(ctx context.Context, event AgentEvent) {
-	if a.bus == nil {
-		return
+// RegisteredTools returns a snapshot of all tools currently registered
+// on this agent. The returned slice is safe to read concurrently.
+func (a *Agent) RegisteredTools() []Tool {
+	names := a.tools.List()
+
+	result := make([]Tool, 0, len(names))
+	for _, name := range names {
+		if t, ok := a.tools.Get(name); ok {
+			result = append(result, t)
+		}
 	}
 
-	payload, err := json.Marshal(event)
-	if err != nil {
-		a.logger.Error("agent: failed to marshal event", "error", err)
-		return
+	return result
+}
+
+// emit publishes an event to the bus.
+func (a *Agent) emit(ctx context.Context, event AgentEvent) {
+	if event.RunID == "" {
+		event.RunID = a.runIDFromContext(ctx)
 	}
 
 	if err := a.bus.Publish(ctx, bus.Event{
 		Topic:   TopicAgentEvent,
 		Type:    string(event.Type),
-		Payload: payload,
+		Payload: event,
 	}); err != nil {
 		a.logger.Error("agent: failed to publish event", "error", err)
 	}
 }
 
+type runIDContextKey struct{}
+
+func withRunID(ctx context.Context, runID string) context.Context {
+	return context.WithValue(ctx, runIDContextKey{}, runID)
+}
+
+func (a *Agent) runIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+
+	runID, _ := ctx.Value(runIDContextKey{}).(string)
+
+	return runID
+}
+
+func (a *Agent) newRunContext(ctx context.Context) (context.Context, string) {
+	runID := uuid.NewString()
+
+	return withRunID(ctx, runID), runID
+}
+
 // addMessage appends a message to the internal history and emits
 // an EventMessageAdded event so external consumers can persist it.
 func (a *Agent) addMessage(ctx context.Context, msgs ...Message) {
-	a.msgMu.Lock()
-	a.messages = append(a.messages, msgs...)
-	a.msgMu.Unlock()
+	a.contextManager.AddMessages(ctx, msgs...)
 
 	for _, msg := range msgs {
 		a.emit(ctx, AgentEvent{
@@ -206,18 +274,12 @@ func (a *Agent) addMessage(ctx context.Context, msgs ...Message) {
 
 // Messages returns a copy of the current message history.
 func (a *Agent) Messages() []Message {
-	a.msgMu.RLock()
-	defer a.msgMu.RUnlock()
-	out := make([]Message, len(a.messages))
-	copy(out, a.messages)
-	return out
+	return a.contextManager.Messages(context.Background())
 }
 
 // ClearMessages clears all messages from the agent's history.
 func (a *Agent) ClearMessages() {
-	a.msgMu.Lock()
-	defer a.msgMu.Unlock()
-	a.messages = nil
+	a.contextManager.ClearMessages(context.Background())
 }
 
 // Inject inserts a message into the agent's history mid-process
@@ -280,11 +342,6 @@ func (a *Agent) dequeueFollowUp() []Message {
 // bus for agent.request events. It returns immediately. Call Stop to
 // unsubscribe and terminate the loop.
 func (a *Agent) Start(ctx context.Context) {
-	if a.bus == nil {
-		a.logger.Warn("agent: bus is nil, Start is a no-op; use Process directly")
-		return
-	}
-
 	runCtx, cancel := context.WithCancel(ctx)
 	a.cancelRun = cancel
 	a.running.Store(true)
@@ -309,7 +366,9 @@ func (a *Agent) Start(ctx context.Context) {
 				a.logger.Info("agent stopped")
 				return
 			case req := <-requests:
-				err := a.Process(runCtx, req.Content)
+				reqCtx, _ := a.newRunContext(runCtx)
+
+				_, err := a.Process(reqCtx, req.Content)
 				if err != nil {
 					a.logger.Error("agent: process error", "error", err)
 					continue
@@ -325,7 +384,8 @@ func (a *Agent) Stop() {
 	if a.cancelRun != nil {
 		a.cancelRun()
 	}
-	if a.bus != nil && a.subID != "" {
+
+	if a.subID != "" {
 		a.bus.Unsubscribe(a.subID)
 		a.subID = ""
 	}
@@ -336,26 +396,31 @@ func (a *Agent) Stop() {
 // Process processes a single user message synchronously and returns the
 // assistant's final text response. It appends the user message to internal
 // history, calls the LLM, executes tools in a loop, and returns the result.
-func (a *Agent) Process(ctx context.Context, content Content) error {
+func (a *Agent) Process(ctx context.Context, content Content) (*Result, error) {
+	if a.runIDFromContext(ctx) == "" {
+		ctx, _ = a.newRunContext(ctx)
+	}
+
 	a.emit(ctx, AgentEvent{Type: EventAgentStart})
 	defer a.emit(ctx, AgentEvent{Type: EventAgentEnd})
 
 	cfg := a.Config()
 
-	userMsg := Message{Role: RoleUser, Content: &content}
+	roundIndex := a.nextRoundIndex()
+	userMsg := Message{Role: RoleUser, Content: &content, RoundIndex: roundIndex}
 	a.addMessage(ctx, userMsg)
 	a.emit(ctx, AgentEvent{
 		Type:    EventMessageStart,
 		Message: &userMsg,
 	})
 
-	err := a.runLoop(ctx, cfg)
+	result, err := a.runLoop(ctx, cfg, roundIndex)
 	if err != nil {
 		a.emit(ctx, AgentEvent{Type: EventError, Error: err})
-		return err
+		return nil, err
 	}
 
-	return nil
+	return result, nil
 }
 
 // ProcessStream processes a single user message with streaming response.
@@ -363,33 +428,55 @@ func (a *Agent) Process(ctx context.Context, content Content) error {
 // The channel is closed when processing completes or an error occurs.
 func (a *Agent) ProcessStream(ctx context.Context, content Content) <-chan AgentEvent {
 	events := make(chan AgentEvent, 256)
+	runCtx, runID := a.newRunContext(ctx)
 
-	go func() {
-		defer close(events)
+	var closed atomic.Bool
 
-		emit := func(ev AgentEvent) {
-			select {
-			case events <- ev:
-			case <-ctx.Done():
-			}
-			a.emit(ctx, ev)
+	subID := a.bus.Subscribe(TopicAgentEvent, func(_ context.Context, ev bus.Event) error {
+		if closed.Load() {
+			return nil
 		}
 
-		emit(AgentEvent{Type: EventAgentStart})
-		defer emit(AgentEvent{Type: EventAgentEnd})
+		agentEv, ok := ev.Payload.(AgentEvent)
+		if !ok {
+			return nil
+		}
+
+		if agentEv.RunID != runID {
+			return nil
+		}
+
+		select {
+		case events <- agentEv:
+		case <-runCtx.Done():
+		}
+
+		return nil
+	})
+
+	go func() {
+		defer func() {
+			closed.Store(true)
+			a.bus.Unsubscribe(subID)
+			close(events)
+		}()
+
+		a.emit(runCtx, AgentEvent{Type: EventAgentStart})
+		defer a.emit(runCtx, AgentEvent{Type: EventAgentEnd})
 
 		cfg := a.Config()
 
-		userMsg := Message{Role: RoleUser, Content: &content}
-		a.addMessage(ctx, userMsg)
-		emit(AgentEvent{
+		roundIndex := a.nextRoundIndex()
+		userMsg := Message{Role: RoleUser, Content: &content, RoundIndex: roundIndex}
+		a.addMessage(runCtx, userMsg)
+		a.emit(runCtx, AgentEvent{
 			Type:    EventMessageStart,
 			Message: &userMsg,
 		})
 
-		err := a.runLoopStream(ctx, cfg, events)
+		err := a.runLoopStream(runCtx, cfg, roundIndex)
 		if err != nil {
-			emit(AgentEvent{Type: EventError, Error: err})
+			a.emit(runCtx, AgentEvent{Type: EventError, Error: err})
 		}
 	}()
 
@@ -398,29 +485,17 @@ func (a *Agent) ProcessStream(ctx context.Context, content Content) <-chan Agent
 
 // PublishRequest publishes an agent request onto the bus for asynchronous processing.
 func (a *Agent) PublishRequest(ctx context.Context, content Content) error {
-	if a.bus == nil {
-		return fmt.Errorf("agent: bus is required for PublishRequest; use WithBus option")
-	}
-
-	payload, err := json.Marshal(AgentRequest{Content: content})
-	if err != nil {
-		return fmt.Errorf("agent: failed to marshal request: %w", err)
-	}
-
 	return a.bus.Publish(ctx, bus.Event{
 		Topic:   TopicAgentRequest,
 		Type:    "request",
-		Payload: payload,
+		Payload: AgentRequest{Content: content},
 	})
 }
 
 // buildMessages constructs the message list for an LLM call, prepending
 // the system prompts if configured.
-func (a *Agent) buildMessages(cfg Config) []Message {
-	a.msgMu.RLock()
-	history := make([]Message, len(a.messages))
-	copy(history, a.messages)
-	a.msgMu.RUnlock()
+func (a *Agent) buildMessages(ctx context.Context, cfg Config) []Message {
+	history := a.contextManager.BuildMessages(ctx)
 
 	systemPrompts := a.buildSystemPrompts(cfg)
 	if len(systemPrompts) == 0 {
@@ -439,14 +514,9 @@ func (a *Agent) buildMessages(cfg Config) []Message {
 }
 
 // buildSystemPrompts builds the system prompts from Config.
-// It supports both SystemPrompt (deprecated) and SystemPrompts.
 // Returns a slice of non-empty system prompt strings.
 func (a *Agent) buildSystemPrompts(cfg Config) []string {
 	var prompts []string
-
-	if cfg.SystemPrompt != "" {
-		prompts = append(prompts, cfg.SystemPrompt)
-	}
 
 	for _, p := range cfg.SystemPrompts {
 		if p != "" {
@@ -457,18 +527,14 @@ func (a *Agent) buildSystemPrompts(cfg Config) []string {
 	return prompts
 }
 
-func (a *Agent) nextRequestIndex() int {
-	// Start from 1 (0 means "unset" and may be treated specially).
-	return int(a.requestIndex.Add(1))
+func (a *Agent) nextRoundIndex() int {
+	return int(a.roundIndex.Add(1))
 }
 
-func (a *Agent) ensureRequestIndex(msgs []Message, requestIndex int) {
+func (a *Agent) ensureRoundIndex(msgs []Message, roundIndex int) {
 	for i := range msgs {
-		if msgs[i].Role != RoleAssistant {
-			continue
-		}
-		if msgs[i].RequestIndex == 0 {
-			msgs[i].RequestIndex = requestIndex
+		if msgs[i].RoundIndex == 0 {
+			msgs[i].RoundIndex = roundIndex
 		}
 	}
 }
@@ -482,16 +548,27 @@ func (a *Agent) ensureRequestIndex(msgs []Message, requestIndex int) {
 //     skipped and steering messages are injected before the next LLM call.
 //   - Follow-up: checked when the agent would otherwise stop (no more tool
 //     calls); follow-up messages are injected and the loop continues.
-func (a *Agent) runLoop(ctx context.Context, cfg Config) error {
+func (a *Agent) runLoop(ctx context.Context, cfg Config, initialRoundIndex int) (*Result, error) {
 	toolDefs := a.tools.Definitions()
 
 	a.emit(ctx, AgentEvent{Type: EventTraceStart})
 	defer a.emit(ctx, AgentEvent{Type: EventTraceEnd})
 
+	// Reset loop detector state for this request.
+	a.loopDetector.reset()
+
 	// Check for steering messages that arrived before the loop started.
 	pendingSteering := a.dequeueSteering()
 
 	iterations := 0
+	// Use the round index from the user message for the first LLM call,
+	// so user + assistant messages share the same round.
+	nextRound := initialRoundIndex
+
+	var (
+		totalUsage Usage
+		lastOutput string
+	)
 
 	// Outer loop: continues when follow-up messages arrive after the agent
 	// would otherwise stop.
@@ -502,7 +579,7 @@ func (a *Agent) runLoop(ctx context.Context, cfg Config) error {
 		for hasMoreToolCalls {
 			iterations++
 			if iterations > cfg.MaxIterations {
-				return fmt.Errorf("agent: max iterations (%d) reached", cfg.MaxIterations)
+				return nil, fmt.Errorf("agent: max iterations (%d) reached", cfg.MaxIterations)
 			}
 
 			// Inject pending steering messages before the next LLM call.
@@ -512,7 +589,7 @@ func (a *Agent) runLoop(ctx context.Context, cfg Config) error {
 				pendingSteering = nil
 			}
 
-			messages := a.buildMessages(cfg)
+			messages := a.buildMessages(ctx, cfg)
 
 			a.logger.Debug("agent: LLM call",
 				"iteration", iterations,
@@ -521,16 +598,27 @@ func (a *Agent) runLoop(ctx context.Context, cfg Config) error {
 
 			resp, err := a.provider.Chat(ctx, cfg.Model, toolDefs, messages)
 			if err != nil {
-				return fmt.Errorf("agent: LLM call failed: %w", err)
+				return nil, fmt.Errorf("agent: LLM call failed: %w", err)
 			}
-			requestIndex := a.nextRequestIndex()
-			a.ensureRequestIndex(resp.Messages, requestIndex)
+			a.emit(ctx, AgentEvent{Type: EventUsage, Usage: &resp.Usage})
+			totalUsage.InputTokens += resp.Usage.InputTokens
+			totalUsage.OutputTokens += resp.Usage.OutputTokens
+
+			roundIndex := nextRound
+			nextRound = a.nextRoundIndex()
+			a.ensureRoundIndex(resp.Messages, roundIndex)
 
 			// Separate tool-use messages from non-tool messages.
 			var toolMsgs []Message
 			for _, msg := range resp.Messages {
-				if msg.ToolUse == nil {
+				if msg.ToolCall == nil {
 					a.addMessage(ctx, msg)
+
+					if msg.Role == RoleAssistant && msg.Content != nil {
+						if text := msg.Content.String(); text != "" {
+							lastOutput = text
+						}
+					}
 				} else {
 					toolMsgs = append(toolMsgs, msg)
 				}
@@ -538,10 +626,17 @@ func (a *Agent) runLoop(ctx context.Context, cfg Config) error {
 
 			hasMoreToolCalls = len(toolMsgs) > 0
 
+			// Extract tool calls from messages for unified processing.
+			toolCalls := make([]ToolCall, len(toolMsgs))
+			for i, msg := range toolMsgs {
+				toolCalls[i] = *msg.ToolCall
+			}
+
 			// Execute tool calls one by one, checking for steering after each.
 			steered := false
-			for i, msg := range toolMsgs {
-				toolResult := a.executeTool(ctx, *msg.ToolUse)
+
+			for i, tc := range toolCalls {
+				toolResult := a.executeTool(ctx, tc)
 
 				var toolContent Content
 				var isError bool
@@ -554,22 +649,28 @@ func (a *Agent) runLoop(ctx context.Context, cfg Config) error {
 				}
 
 				toolMsg := Message{
-					Role:      RoleTool,
-					Content:   &toolContent,
-					ToolUseID: &msg.ToolUse.ID,
-					IsError:   &isError,
+					Role:       RoleTool,
+					Content:    &toolContent,
+					ToolUseID:  &tc.ID,
+					IsError:    &isError,
+					RoundIndex: roundIndex,
 				}
-				a.addMessage(ctx, msg, toolMsg)
+				a.addMessage(ctx, toolMsgs[i], toolMsg)
+
+				// Check for loop detection after each tool execution.
+				steered, err = a.handleLoopDetection(ctx, tc, toolCalls[i+1:], roundIndex)
+				if err != nil {
+					return nil, err
+				}
+
+				if steered {
+					break
+				}
 
 				// Check for steering after each tool execution.
 				if steering := a.dequeueSteering(); len(steering) > 0 {
-					// Skip remaining tool calls.
-					for _, skipped := range toolMsgs[i+1:] {
-						skippedIndex := requestIndex
-						if skipped.RequestIndex != 0 {
-							skippedIndex = skipped.RequestIndex
-						}
-						a.skipToolCall(ctx, *skipped.ToolUse, skippedIndex)
+					for _, skipped := range toolCalls[i+1:] {
+						a.skipToolCall(ctx, skipped, roundIndex)
 					}
 					pendingSteering = steering
 					steered = true
@@ -600,13 +701,13 @@ func (a *Agent) runLoop(ctx context.Context, cfg Config) error {
 			continue
 		}
 
-		return nil
+		return &Result{Output: lastOutput, Usage: totalUsage}, nil
 	}
 }
 
 // executeTool runs a single tool call and returns the result.
 // If the tool panics or is not found, Error is set in the result.
-func (a *Agent) executeTool(ctx context.Context, tc ToolUse) (result ToolResult) {
+func (a *Agent) executeTool(ctx context.Context, tc ToolCall) (result ToolResult) {
 	defer func() {
 		if r := recover(); r != nil {
 			result.Error = fmt.Errorf("panic in tool %q: %v", tc.Name, r)
@@ -650,7 +751,7 @@ func (a *Agent) executeTool(ctx context.Context, tc ToolUse) (result ToolResult)
 
 	req := ToolRequest{
 		ThreadID:   clawcontext.ThreadID(ctx),
-		Workspace:  workspaceFromContext(ctx),
+		Workspace:  axoncontext.Workspace(ctx),
 		ToolCallID: tc.ID,
 		ToolName:   tc.Name,
 		ToolInput:  tc.Input,
@@ -686,9 +787,27 @@ func (a *Agent) executeTool(ctx context.Context, tc ToolUse) (result ToolResult)
 	return result
 }
 
+// buildLoopRecoveryMessage creates a user message that nudges the LLM to
+// break out of a detected loop.
+func (a *Agent) buildLoopRecoveryMessage(detection LoopDetection, roundIndex int) Message {
+	text := fmt.Sprintf(
+		"System: Potential loop detected. Details: %s. "+
+			"Please take a step back and confirm you are making forward progress. "+
+			"If not, analyze your previous actions and try a different approach. "+
+			"Avoid repeating the same tool calls or responses without meaningful new results.",
+		detection.Detail,
+	)
+
+	return Message{
+		Role:       RoleUser,
+		Content:    &Content{Text: &text},
+		RoundIndex: roundIndex,
+	}
+}
+
 // skipToolCall emits a skipped-tool message pair (tool_use + tool result)
 // so the conversation history stays consistent for the LLM.
-func (a *Agent) skipToolCall(ctx context.Context, tc ToolUse, requestIndex int) {
+func (a *Agent) skipToolCall(ctx context.Context, tc ToolCall, roundIndex int) {
 	a.emit(ctx, AgentEvent{
 		Type:     EventToolSkipped,
 		ToolName: tc.Name,
@@ -697,37 +816,67 @@ func (a *Agent) skipToolCall(ctx context.Context, tc ToolUse, requestIndex int) 
 	errMsg := "Skipped due to steering message."
 	isError := true
 	toolMsg := Message{
-		Role:      RoleTool,
-		Content:   &Content{Text: &errMsg},
-		ToolUseID: &tc.ID,
-		IsError:   &isError,
+		Role:       RoleTool,
+		Content:    &Content{Text: &errMsg},
+		ToolUseID:  &tc.ID,
+		IsError:    &isError,
+		RoundIndex: roundIndex,
 	}
 	// Add original tool-use message + skipped result so history is valid.
 	a.addMessage(ctx, Message{
-		Role:         RoleAssistant,
-		ToolUse:      &tc,
-		RequestIndex: requestIndex,
+		Role:       RoleAssistant,
+		ToolCall:   &tc,
+		RoundIndex: roundIndex,
 	}, toolMsg)
 }
 
-// runLoopStream is the streaming version of runLoop.
-// It processes streaming events from the LLM and emits them to the events channel.
-func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan AgentEvent) error {
-	toolDefs := a.tools.Definitions()
-
-	emit := func(ev AgentEvent) {
-		select {
-		case events <- ev:
-		case <-ctx.Done():
-		}
-		a.emit(ctx, ev)
+// handleLoopDetection checks for loop detection after a tool execution.
+// It returns steered=true if a recovery was performed and remaining calls should be skipped,
+// or an error if recovery is exhausted.
+func (a *Agent) handleLoopDetection(ctx context.Context, tc ToolCall, remainingToolCalls []ToolCall, roundIndex int) (steered bool, err error) {
+	detection := a.loopDetector.checkToolCall(tc.Name, tc.Input)
+	if !detection.Detected {
+		return false, nil
 	}
 
-	emit(AgentEvent{Type: EventTraceStart})
-	defer emit(AgentEvent{Type: EventTraceEnd})
+	a.emit(ctx, AgentEvent{Type: EventLoopDetected, Delta: detection.Detail})
+	a.logger.Warn("agent: loop detected",
+		"type", detection.Type,
+		"detail", detection.Detail,
+		"count", detection.Count,
+	)
+
+	if a.loopDetector.canRecover() {
+		a.emit(ctx, AgentEvent{Type: EventLoopRecovery, Delta: detection.Detail})
+		recoveryMsg := a.buildLoopRecoveryMessage(detection, roundIndex)
+		a.addMessage(ctx, recoveryMsg)
+
+		for _, skipped := range remainingToolCalls {
+			a.skipToolCall(ctx, skipped, roundIndex)
+		}
+
+		return true, nil
+	}
+
+	return false, fmt.Errorf("agent: loop detected and recovery exhausted: %s", detection.Detail)
+}
+
+// runLoopStream is the streaming version of runLoop.
+// It processes streaming events from the LLM and emits them via the bus.
+//
+//nolint:maintidx // Checked.
+func (a *Agent) runLoopStream(ctx context.Context, cfg Config, initialRoundIndex int) error {
+	toolDefs := a.tools.Definitions()
+
+	a.emit(ctx, AgentEvent{Type: EventTraceStart})
+	defer a.emit(ctx, AgentEvent{Type: EventTraceEnd})
+
+	// Reset loop detector state for this request.
+	a.loopDetector.reset()
 
 	pendingSteering := a.dequeueSteering()
 	iterations := 0
+	nextRound := initialRoundIndex
 
 	for {
 		hasMoreToolCalls := true
@@ -740,11 +889,11 @@ func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan Agent
 
 			if len(pendingSteering) > 0 {
 				a.addMessage(ctx, pendingSteering...)
-				emit(AgentEvent{Type: EventSteeringApplied})
+				a.emit(ctx, AgentEvent{Type: EventSteeringApplied})
 				pendingSteering = nil
 			}
 
-			messages := a.buildMessages(cfg)
+			messages := a.buildMessages(ctx, cfg)
 
 			a.logger.Debug("agent: LLM stream call",
 				"iteration", iterations,
@@ -756,14 +905,18 @@ func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan Agent
 				return fmt.Errorf("agent: LLM stream call failed: %w", err)
 			}
 
-			requestIndex := a.nextRequestIndex()
+			roundIndex := nextRound
+			nextRound = a.nextRoundIndex()
 
-			var textBuilder strings.Builder
-			var thinkingBuilder strings.Builder
-			var thinkingSignature string
-			var toolCalls []ToolUse
-			var toolCallBuilders map[string]*toolCallBuilder
-			var usage *Usage
+			var (
+				textBuilder       strings.Builder
+				thinkingBuilder   strings.Builder
+				thinkingSignature string
+				toolCalls         []ToolCall
+				toolCallBuilders  map[string]*toolCallBuilder
+				toolCallOrder     []string
+				usage             *Usage
+			)
 
 			for ev := range stream {
 				if ctx.Err() != nil {
@@ -773,58 +926,61 @@ func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan Agent
 				switch ev.Type {
 				case StreamEventTextDelta:
 					textBuilder.WriteString(ev.Text)
-					emit(AgentEvent{Type: EventTextDelta, Delta: ev.Text})
+					a.emit(ctx, AgentEvent{Type: EventTextDelta, Delta: ev.Text})
 
 				case StreamEventTextComplete:
-					emit(AgentEvent{Type: EventTextComplete, Delta: ev.Text})
+					a.emit(ctx, AgentEvent{Type: EventTextComplete, Delta: ev.Text})
 
 				case StreamEventThinkingDelta:
 					if ev.Thinking != nil {
 						thinkingBuilder.WriteString(ev.Thinking.Content)
-						emit(AgentEvent{Type: EventThinkingDelta, Thinking: ev.Thinking.Content})
+						a.emit(ctx, AgentEvent{Type: EventThinkingDelta, Thinking: ev.Thinking.Content})
 					}
 
 				case StreamEventThinkingComplete:
 					if ev.Thinking != nil {
-						emit(AgentEvent{Type: EventThinkingComplete, Thinking: ev.Thinking.Content})
+						a.emit(ctx, AgentEvent{Type: EventThinkingComplete, Thinking: ev.Thinking.Content})
 						thinkingSignature = ev.Thinking.Signature
 					}
 
 				case StreamEventToolCallDelta:
-					if ev.ToolUse == nil {
+					if ev.ToolCall == nil {
 						continue
 					}
 					if toolCallBuilders == nil {
 						toolCallBuilders = make(map[string]*toolCallBuilder)
 					}
-					builder, ok := toolCallBuilders[ev.ToolUse.ID]
+
+					builder, ok := toolCallBuilders[ev.ToolCall.ID]
 					if !ok {
 						builder = &toolCallBuilder{
-							id:   ev.ToolUse.ID,
-							name: ev.ToolUse.Name,
+							Id:   ev.ToolCall.ID,
+							Name: ev.ToolCall.Name,
 						}
-						toolCallBuilders[ev.ToolUse.ID] = builder
+						toolCallBuilders[ev.ToolCall.ID] = builder
+						toolCallOrder = append(toolCallOrder, ev.ToolCall.ID)
 					}
-					builder.jsonParts = append(builder.jsonParts, ev.Text)
-					emit(AgentEvent{
+
+					builder.InputDelta = append(builder.InputDelta, ev.Text)
+					a.emit(ctx, AgentEvent{
 						Type:      EventToolCallDelta,
-						ToolName:  ev.ToolUse.Name,
+						ToolName:  ev.ToolCall.Name,
 						ToolInput: ev.Text,
 					})
 
 				case StreamEventToolCallComplete:
-					if ev.ToolUse != nil {
-						toolCalls = append(toolCalls, *ev.ToolUse)
-						emit(AgentEvent{
+					if ev.ToolCall != nil {
+						toolCalls = append(toolCalls, *ev.ToolCall)
+						a.emit(ctx, AgentEvent{
 							Type:      EventToolCallComplete,
-							ToolName:  ev.ToolUse.Name,
-							ToolInput: ev.ToolUse.Input,
+							ToolName:  ev.ToolCall.Name,
+							ToolInput: ev.ToolCall.Input,
 						})
 					}
 
 				case StreamEventUsage:
 					usage = ev.Usage
-					emit(AgentEvent{Type: EventUsage, Usage: ev.Usage})
+					a.emit(ctx, AgentEvent{Type: EventUsage, Usage: ev.Usage})
 
 				case StreamEventError:
 					return ev.Error
@@ -834,14 +990,19 @@ func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan Agent
 			}
 
 			if len(toolCalls) == 0 && toolCallBuilders != nil {
-				for _, builder := range toolCallBuilders {
-					tc := ToolUse{
-						ID:    builder.id,
-						Name:  builder.name,
+				for _, toolCallID := range toolCallOrder {
+					builder := toolCallBuilders[toolCallID]
+					if builder == nil {
+						continue
+					}
+
+					tc := ToolCall{
+						ID:    builder.Id,
+						Name:  builder.Name,
 						Input: builder.buildJSON(),
 					}
 					toolCalls = append(toolCalls, tc)
-					emit(AgentEvent{
+					a.emit(ctx, AgentEvent{
 						Type:      EventToolCallComplete,
 						ToolName:  tc.Name,
 						ToolInput: tc.Input,
@@ -871,18 +1032,17 @@ func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan Agent
 				assistantMsg = Message{
 					Role:    RoleAssistant,
 					Content: &Content{Parts: contentParts},
-					// Group content + tool-use blocks from this LLM call.
-					RequestIndex: requestIndex,
+					// Group content + tool-use blocks from this LLM call round.
+					RoundIndex: roundIndex,
 				}
 				a.addMessage(ctx, assistantMsg)
-				emit(AgentEvent{Type: EventMessageAdded, Message: &assistantMsg})
 			}
 
 			hasMoreToolCalls = len(toolCalls) > 0
 
 			steered := false
 			for i, tc := range toolCalls {
-				toolResult := a.executeToolStream(ctx, tc, events)
+				toolResult := a.executeTool(ctx, tc)
 
 				var toolContent Content
 				var isError bool
@@ -895,16 +1055,26 @@ func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan Agent
 				}
 
 				toolMsg := Message{
-					Role:      RoleTool,
-					Content:   &toolContent,
-					ToolUseID: &tc.ID,
-					IsError:   &isError,
+					Role:       RoleTool,
+					Content:    &toolContent,
+					ToolUseID:  &tc.ID,
+					IsError:    &isError,
+					RoundIndex: roundIndex,
 				}
-				a.addMessage(ctx, Message{Role: RoleAssistant, ToolUse: &tc, RequestIndex: requestIndex}, toolMsg)
+				a.addMessage(ctx, Message{Role: RoleAssistant, ToolCall: &tc, RoundIndex: roundIndex}, toolMsg)
+
+				steered, err = a.handleLoopDetection(ctx, tc, toolCalls[i+1:], roundIndex)
+				if err != nil {
+					return err
+				}
+
+				if steered {
+					break
+				}
 
 				if steering := a.dequeueSteering(); len(steering) > 0 {
 					for _, skipped := range toolCalls[i+1:] {
-						a.skipToolCall(ctx, skipped, requestIndex)
+						a.skipToolCall(ctx, skipped, roundIndex)
 					}
 					pendingSteering = steering
 					steered = true
@@ -936,121 +1106,11 @@ func (a *Agent) runLoopStream(ctx context.Context, cfg Config, events chan Agent
 	}
 }
 
-// executeToolStream runs a tool and emits events to the stream channel.
-func (a *Agent) executeToolStream(ctx context.Context, tc ToolUse, events chan AgentEvent) (result ToolResult) {
-	emit := func(ev AgentEvent) {
-		select {
-		case events <- ev:
-		case <-ctx.Done():
-		}
-		a.emit(ctx, ev)
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			result.Error = fmt.Errorf("panic in tool %q: %v", tc.Name, r)
-			a.logger.Error("agent: tool panic", "tool", tc.Name, "panic", r)
-		}
-	}()
-
-	emit(AgentEvent{
-		Type:      EventToolStart,
-		ToolName:  tc.Name,
-		ToolInput: tc.Input,
-	})
-
-	if err := a.tools.ValidateArguments(tc.Name, json.RawMessage(tc.Input)); err != nil {
-		result.Error = fmt.Errorf("invalid arguments for tool %q: %w", tc.Name, err)
-		emit(AgentEvent{
-			Type:     EventToolEnd,
-			ToolName: tc.Name,
-			Result:   &result,
-		})
-		return result
-	}
-
-	tool, ok := a.tools.Get(tc.Name)
-	if !ok {
-		result.Error = fmt.Errorf("tool %q not found", tc.Name)
-		emit(AgentEvent{
-			Type:     EventToolEnd,
-			ToolName: tc.Name,
-			Result:   &result,
-		})
-		return result
-	}
-
-	a.logger.Debug("agent: executing tool", "tool", tc.Name)
-
-	var executedMiddlewares []Middleware
-	for _, mw := range a.middlewares {
-		req := ToolRequest{
-			ThreadID:   clawcontext.ThreadID(ctx),
-			Workspace:  workspaceFromContext(ctx),
-			ToolCallID: tc.ID,
-			ToolName:   tc.Name,
-			ToolInput:  tc.Input,
-			StartedAt:  time.Now(),
-		}
-		if err := mw.BeforeTool(ctx, req); err != nil {
-			result.Error = err
-			emit(AgentEvent{
-				Type:      EventToolEnd,
-				ToolName:  tc.Name,
-				ToolInput: tc.Input,
-				Result:    &result,
-			})
-			a.runAfterMiddlewares(ctx, tc, result.Error, executedMiddlewares)
-			return result
-		}
-		executedMiddlewares = append(executedMiddlewares, mw)
-	}
-
-	result = tool.Execute(ctx, json.RawMessage(tc.Input))
-	a.runAfterMiddlewares(ctx, tc, result.Error, executedMiddlewares)
-
-	emit(AgentEvent{
-		Type:      EventToolEnd,
-		ToolName:  tc.Name,
-		ToolInput: tc.Input,
-		Result:    &result,
-	})
-
-	return result
-}
-
-type toolCallBuilder struct {
-	id        string
-	name      string
-	jsonParts []string
-}
-
-func (b *toolCallBuilder) buildJSON() string {
-	result := ""
-	for _, part := range b.jsonParts {
-		result += part
-	}
-	return result
-}
-
-type ctxKey string
-
-const workspaceCtxKey ctxKey = "workspace"
-
-func WithWorkspace(ctx context.Context, workspace string) context.Context {
-	return context.WithValue(ctx, workspaceCtxKey, workspace)
-}
-
-func workspaceFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(workspaceCtxKey).(string)
-	return v
-}
-
-func (a *Agent) runAfterMiddlewares(ctx context.Context, tc ToolUse, toolErr error, mws []Middleware) {
+func (a *Agent) runAfterMiddlewares(ctx context.Context, tc ToolCall, toolErr error, mws []Middleware) {
 	for i := len(mws) - 1; i >= 0; i-- {
 		req := ToolRequest{
 			ThreadID:   axoncontext.ThreadID(ctx),
-			Workspace:  workspaceFromContext(ctx),
+			Workspace:  axoncontext.Workspace(ctx),
 			ToolCallID: tc.ID,
 			ToolName:   tc.Name,
 			ToolInput:  tc.Input,

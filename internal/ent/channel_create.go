@@ -427,12 +427,6 @@ func (_c *ChannelCreate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ChannelCreate) check() error {
-	if _, ok := _c.mutation.CreatedAt(); !ok {
-		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Channel.created_at"`)}
-	}
-	if _, ok := _c.mutation.UpdatedAt(); !ok {
-		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Channel.updated_at"`)}
-	}
 	if _, ok := _c.mutation.DeletedAt(); !ok {
 		return &ValidationError{Name: "deleted_at", err: errors.New(`ent: missing required field "Channel.deleted_at"`)}
 	}
@@ -755,6 +749,18 @@ func (u *ChannelUpsert) AddDeletedAt(v int) *ChannelUpsert {
 	return u
 }
 
+// SetType sets the "type" field.
+func (u *ChannelUpsert) SetType(v channel.Type) *ChannelUpsert {
+	u.Set(channel.FieldType, v)
+	return u
+}
+
+// UpdateType sets the "type" field to the value that was provided on create.
+func (u *ChannelUpsert) UpdateType() *ChannelUpsert {
+	u.SetExcluded(channel.FieldType)
+	return u
+}
+
 // SetBaseURL sets the "base_url" field.
 func (u *ChannelUpsert) SetBaseURL(v string) *ChannelUpsert {
 	u.Set(channel.FieldBaseURL, v)
@@ -1021,9 +1027,6 @@ func (u *ChannelUpsertOne) UpdateNewValues() *ChannelUpsertOne {
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(channel.FieldCreatedAt)
 		}
-		if _, exists := u.create.mutation.GetType(); exists {
-			s.SetIgnore(channel.FieldType)
-		}
 	}))
 	return u
 }
@@ -1087,6 +1090,20 @@ func (u *ChannelUpsertOne) AddDeletedAt(v int) *ChannelUpsertOne {
 func (u *ChannelUpsertOne) UpdateDeletedAt() *ChannelUpsertOne {
 	return u.Update(func(s *ChannelUpsert) {
 		s.UpdateDeletedAt()
+	})
+}
+
+// SetType sets the "type" field.
+func (u *ChannelUpsertOne) SetType(v channel.Type) *ChannelUpsertOne {
+	return u.Update(func(s *ChannelUpsert) {
+		s.SetType(v)
+	})
+}
+
+// UpdateType sets the "type" field to the value that was provided on create.
+func (u *ChannelUpsertOne) UpdateType() *ChannelUpsertOne {
+	return u.Update(func(s *ChannelUpsert) {
+		s.UpdateType()
 	})
 }
 
@@ -1563,9 +1580,6 @@ func (u *ChannelUpsertBulk) UpdateNewValues() *ChannelUpsertBulk {
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(channel.FieldCreatedAt)
 			}
-			if _, exists := b.mutation.GetType(); exists {
-				s.SetIgnore(channel.FieldType)
-			}
 		}
 	}))
 	return u
@@ -1630,6 +1644,20 @@ func (u *ChannelUpsertBulk) AddDeletedAt(v int) *ChannelUpsertBulk {
 func (u *ChannelUpsertBulk) UpdateDeletedAt() *ChannelUpsertBulk {
 	return u.Update(func(s *ChannelUpsert) {
 		s.UpdateDeletedAt()
+	})
+}
+
+// SetType sets the "type" field.
+func (u *ChannelUpsertBulk) SetType(v channel.Type) *ChannelUpsertBulk {
+	return u.Update(func(s *ChannelUpsert) {
+		s.SetType(v)
+	})
+}
+
+// UpdateType sets the "type" field to the value that was provided on create.
+func (u *ChannelUpsertBulk) UpdateType() *ChannelUpsertBulk {
+	return u.Update(func(s *ChannelUpsert) {
+		s.UpdateType()
 	})
 }
 

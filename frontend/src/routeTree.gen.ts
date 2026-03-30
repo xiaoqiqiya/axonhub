@@ -26,6 +26,7 @@ import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authentic
 import { Route as AuthenticatedSystemIndexRouteImport } from './routes/_authenticated/system/index'
 import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
 import { Route as AuthenticatedRolesIndexRouteImport } from './routes/_authenticated/roles/index'
+import { Route as AuthenticatedPromptProtectionRulesIndexRouteImport } from './routes/_authenticated/prompt-protection-rules/index'
 import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects/index'
 import { Route as AuthenticatedPermissionDemoIndexRouteImport } from './routes/_authenticated/permission-demo/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
@@ -46,6 +47,7 @@ import { Route as AuthenticatedProjectRolesIndexRouteImport } from './routes/_au
 import { Route as AuthenticatedProjectRequestsIndexRouteImport } from './routes/_authenticated/project/requests/index'
 import { Route as AuthenticatedProjectPromptsIndexRouteImport } from './routes/_authenticated/project/prompts/index'
 import { Route as AuthenticatedProjectPlaygroundIndexRouteImport } from './routes/_authenticated/project/playground/index'
+import { Route as AuthenticatedProjectMessageChannelsIndexRouteImport } from './routes/_authenticated/project/message-channels/index'
 import { Route as AuthenticatedProjectApiKeysIndexRouteImport } from './routes/_authenticated/project/api-keys/index'
 import { Route as AuthenticatedProjectAgentsIndexRouteImport } from './routes/_authenticated/project/agents/index'
 import { Route as AuthenticatedProjectTracesTraceIdRouteImport } from './routes/_authenticated/project/traces/$traceId'
@@ -143,6 +145,12 @@ const AuthenticatedRolesIndexRoute = AuthenticatedRolesIndexRouteImport.update({
   path: '/roles/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPromptProtectionRulesIndexRoute =
+  AuthenticatedPromptProtectionRulesIndexRouteImport.update({
+    id: '/prompt-protection-rules/',
+    path: '/prompt-protection-rules/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedProjectsIndexRoute =
   AuthenticatedProjectsIndexRouteImport.update({
     id: '/projects/',
@@ -262,6 +270,12 @@ const AuthenticatedProjectPlaygroundIndexRoute =
     path: '/project/playground/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProjectMessageChannelsIndexRoute =
+  AuthenticatedProjectMessageChannelsIndexRouteImport.update({
+    id: '/project/message-channels/',
+    path: '/project/message-channels/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedProjectApiKeysIndexRoute =
   AuthenticatedProjectApiKeysIndexRouteImport.update({
     id: '/project/api-keys/',
@@ -343,6 +357,7 @@ export interface FileRoutesByFullPath {
   '/models': typeof AuthenticatedModelsIndexRoute
   '/permission-demo': typeof AuthenticatedPermissionDemoIndexRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
+  '/prompt-protection-rules': typeof AuthenticatedPromptProtectionRulesIndexRoute
   '/roles': typeof AuthenticatedRolesIndexRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
   '/system': typeof AuthenticatedSystemIndexRoute
@@ -353,6 +368,7 @@ export interface FileRoutesByFullPath {
   '/project/traces/$traceId': typeof AuthenticatedProjectTracesTraceIdRoute
   '/project/agents': typeof AuthenticatedProjectAgentsIndexRoute
   '/project/api-keys': typeof AuthenticatedProjectApiKeysIndexRoute
+  '/project/message-channels': typeof AuthenticatedProjectMessageChannelsIndexRoute
   '/project/playground': typeof AuthenticatedProjectPlaygroundIndexRoute
   '/project/prompts': typeof AuthenticatedProjectPromptsIndexRoute
   '/project/requests': typeof AuthenticatedProjectRequestsIndexRoute
@@ -389,6 +405,7 @@ export interface FileRoutesByTo {
   '/models': typeof AuthenticatedModelsIndexRoute
   '/permission-demo': typeof AuthenticatedPermissionDemoIndexRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
+  '/prompt-protection-rules': typeof AuthenticatedPromptProtectionRulesIndexRoute
   '/roles': typeof AuthenticatedRolesIndexRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
   '/system': typeof AuthenticatedSystemIndexRoute
@@ -399,6 +416,7 @@ export interface FileRoutesByTo {
   '/project/traces/$traceId': typeof AuthenticatedProjectTracesTraceIdRoute
   '/project/agents': typeof AuthenticatedProjectAgentsIndexRoute
   '/project/api-keys': typeof AuthenticatedProjectApiKeysIndexRoute
+  '/project/message-channels': typeof AuthenticatedProjectMessageChannelsIndexRoute
   '/project/playground': typeof AuthenticatedProjectPlaygroundIndexRoute
   '/project/prompts': typeof AuthenticatedProjectPromptsIndexRoute
   '/project/requests': typeof AuthenticatedProjectRequestsIndexRoute
@@ -438,6 +456,7 @@ export interface FileRoutesById {
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
   '/_authenticated/permission-demo/': typeof AuthenticatedPermissionDemoIndexRoute
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
+  '/_authenticated/prompt-protection-rules/': typeof AuthenticatedPromptProtectionRulesIndexRoute
   '/_authenticated/roles/': typeof AuthenticatedRolesIndexRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
   '/_authenticated/system/': typeof AuthenticatedSystemIndexRoute
@@ -448,6 +467,7 @@ export interface FileRoutesById {
   '/_authenticated/project/traces/$traceId': typeof AuthenticatedProjectTracesTraceIdRoute
   '/_authenticated/project/agents/': typeof AuthenticatedProjectAgentsIndexRoute
   '/_authenticated/project/api-keys/': typeof AuthenticatedProjectApiKeysIndexRoute
+  '/_authenticated/project/message-channels/': typeof AuthenticatedProjectMessageChannelsIndexRoute
   '/_authenticated/project/playground/': typeof AuthenticatedProjectPlaygroundIndexRoute
   '/_authenticated/project/prompts/': typeof AuthenticatedProjectPromptsIndexRoute
   '/_authenticated/project/requests/': typeof AuthenticatedProjectRequestsIndexRoute
@@ -487,6 +507,7 @@ export interface FileRouteTypes {
     | '/models'
     | '/permission-demo'
     | '/projects'
+    | '/prompt-protection-rules'
     | '/roles'
     | '/settings/'
     | '/system'
@@ -497,6 +518,7 @@ export interface FileRouteTypes {
     | '/project/traces/$traceId'
     | '/project/agents'
     | '/project/api-keys'
+    | '/project/message-channels'
     | '/project/playground'
     | '/project/prompts'
     | '/project/requests'
@@ -533,6 +555,7 @@ export interface FileRouteTypes {
     | '/models'
     | '/permission-demo'
     | '/projects'
+    | '/prompt-protection-rules'
     | '/roles'
     | '/settings'
     | '/system'
@@ -543,6 +566,7 @@ export interface FileRouteTypes {
     | '/project/traces/$traceId'
     | '/project/agents'
     | '/project/api-keys'
+    | '/project/message-channels'
     | '/project/playground'
     | '/project/prompts'
     | '/project/requests'
@@ -581,6 +605,7 @@ export interface FileRouteTypes {
     | '/_authenticated/models/'
     | '/_authenticated/permission-demo/'
     | '/_authenticated/projects/'
+    | '/_authenticated/prompt-protection-rules/'
     | '/_authenticated/roles/'
     | '/_authenticated/settings/'
     | '/_authenticated/system/'
@@ -591,6 +616,7 @@ export interface FileRouteTypes {
     | '/_authenticated/project/traces/$traceId'
     | '/_authenticated/project/agents/'
     | '/_authenticated/project/api-keys/'
+    | '/_authenticated/project/message-channels/'
     | '/_authenticated/project/playground/'
     | '/_authenticated/project/prompts/'
     | '/_authenticated/project/requests/'
@@ -737,6 +763,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRolesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/prompt-protection-rules/': {
+      id: '/_authenticated/prompt-protection-rules/'
+      path: '/prompt-protection-rules'
+      fullPath: '/prompt-protection-rules'
+      preLoaderRoute: typeof AuthenticatedPromptProtectionRulesIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/projects/': {
       id: '/_authenticated/projects/'
       path: '/projects'
@@ -877,6 +910,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectPlaygroundIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/project/message-channels/': {
+      id: '/_authenticated/project/message-channels/'
+      path: '/project/message-channels'
+      fullPath: '/project/message-channels'
+      preLoaderRoute: typeof AuthenticatedProjectMessageChannelsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/project/api-keys/': {
       id: '/_authenticated/project/api-keys/'
       path: '/project/api-keys'
@@ -979,6 +1019,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
   AuthenticatedPermissionDemoIndexRoute: typeof AuthenticatedPermissionDemoIndexRoute
   AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute
+  AuthenticatedPromptProtectionRulesIndexRoute: typeof AuthenticatedPromptProtectionRulesIndexRoute
   AuthenticatedRolesIndexRoute: typeof AuthenticatedRolesIndexRoute
   AuthenticatedSystemIndexRoute: typeof AuthenticatedSystemIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
@@ -988,6 +1029,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProjectTracesTraceIdRoute: typeof AuthenticatedProjectTracesTraceIdRoute
   AuthenticatedProjectAgentsIndexRoute: typeof AuthenticatedProjectAgentsIndexRoute
   AuthenticatedProjectApiKeysIndexRoute: typeof AuthenticatedProjectApiKeysIndexRoute
+  AuthenticatedProjectMessageChannelsIndexRoute: typeof AuthenticatedProjectMessageChannelsIndexRoute
   AuthenticatedProjectPlaygroundIndexRoute: typeof AuthenticatedProjectPlaygroundIndexRoute
   AuthenticatedProjectPromptsIndexRoute: typeof AuthenticatedProjectPromptsIndexRoute
   AuthenticatedProjectRequestsIndexRoute: typeof AuthenticatedProjectRequestsIndexRoute
@@ -1013,6 +1055,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
   AuthenticatedPermissionDemoIndexRoute: AuthenticatedPermissionDemoIndexRoute,
   AuthenticatedProjectsIndexRoute: AuthenticatedProjectsIndexRoute,
+  AuthenticatedPromptProtectionRulesIndexRoute:
+    AuthenticatedPromptProtectionRulesIndexRoute,
   AuthenticatedRolesIndexRoute: AuthenticatedRolesIndexRoute,
   AuthenticatedSystemIndexRoute: AuthenticatedSystemIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
@@ -1025,6 +1069,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedProjectTracesTraceIdRoute,
   AuthenticatedProjectAgentsIndexRoute: AuthenticatedProjectAgentsIndexRoute,
   AuthenticatedProjectApiKeysIndexRoute: AuthenticatedProjectApiKeysIndexRoute,
+  AuthenticatedProjectMessageChannelsIndexRoute:
+    AuthenticatedProjectMessageChannelsIndexRoute,
   AuthenticatedProjectPlaygroundIndexRoute:
     AuthenticatedProjectPlaygroundIndexRoute,
   AuthenticatedProjectPromptsIndexRoute: AuthenticatedProjectPromptsIndexRoute,

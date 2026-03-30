@@ -51,6 +51,15 @@ type ChannelProbe func(*sql.Selector)
 // DataStorage is the predicate function for datastorage builders.
 type DataStorage func(*sql.Selector)
 
+// MessageChannel is the predicate function for messagechannel builders.
+type MessageChannel func(*sql.Selector)
+
+// MessageChannelAgentInstance is the predicate function for messagechannelagentinstance builders.
+type MessageChannelAgentInstance func(*sql.Selector)
+
+// MessageChannelBindingRequest is the predicate function for messagechannelbindingrequest builders.
+type MessageChannelBindingRequest func(*sql.Selector)
+
 // Model is the predicate function for model builders.
 type Model func(*sql.Selector)
 
@@ -59,6 +68,9 @@ type Project func(*sql.Selector)
 
 // Prompt is the predicate function for prompt builders.
 type Prompt func(*sql.Selector)
+
+// PromptProtectionRule is the predicate function for promptprotectionrule builders.
+type PromptProtectionRule func(*sql.Selector)
 
 // PromptVersion is the predicate function for promptversion builders.
 type PromptVersion func(*sql.Selector)

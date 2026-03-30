@@ -15,6 +15,13 @@ type AgentBuiltinTool {
   config: JSONRawMessage
 }
 
+type AgentBuiltinSkill {
+  name: String!
+  enabled: Boolean!
+  order: Int!
+  config: JSONRawMessage
+}
+
 """
 Agent skills policy stored in DB as structured JSON.
 """
@@ -523,7 +530,6 @@ extend type Channel {
   """
   disabledAPIKeys: [DisabledAPIKey!] @goField(forceResolver: true)
 }
-
 
 type Segment {
   id: ID!

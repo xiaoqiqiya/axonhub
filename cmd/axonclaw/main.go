@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Khan/genqlient/graphql"
 	"github.com/looplj/axonhub/axon/agent"
@@ -20,32 +21,29 @@ import (
 	"github.com/looplj/axonhub/axon/permission/grant"
 	"github.com/looplj/axonhub/axon/permission/policy"
 	"github.com/looplj/axonhub/axon/provider/anthropic"
-	"github.com/looplj/axonhub/axon/thread"
-	"github.com/looplj/axonhub/cmd/axonclaw/bootstrap"
-	"github.com/looplj/axonhub/cmd/axonclaw/build"
-	"github.com/looplj/axonhub/cmd/axonclaw/cmds"
-	"github.com/looplj/axonhub/cmd/axonclaw/conf"
-	"github.com/looplj/axonhub/cmd/axonclaw/runner"
-	"github.com/looplj/skills/skillscmd"
+	"github.com/looplj/axonhub/axon/subagent"
+	"github.com/looplj/axonhub/axon/task"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"gopkg.in/natefinch/lumberjack.v2"
+
+	"github.com/looplj/axonhub/cmd/axonclaw/bootstrap"
+	"github.com/looplj/axonhub/cmd/axonclaw/build"
+	"github.com/looplj/axonhub/cmd/axonclaw/claw"
+	"github.com/looplj/axonhub/cmd/axonclaw/cmds"
+	"github.com/looplj/axonhub/cmd/axonclaw/conf"
+	"github.com/looplj/axonhub/cmd/axonclaw/skills"
 )
 
-const (
-	logsDirName    = "logs"
-	threadsDirName = "threads"
-	configDirName  = ".axonclaw"
-)
+const logsDirName = "logs"
 
 type loggerCloser func()
 
 func main() {
 	workspaceDir := mustGetwd()
-	configDir := filepath.Join(workspaceDir, configDirName)
 
 	rootCmd := newRootCommand(newRootCommandOptions{
 		WorkspaceDir: workspaceDir,
-		ConfigDir:    configDir,
 		RunAgent:     runAgent,
 	})
 
@@ -56,7 +54,6 @@ func main() {
 
 type newRootCommandOptions struct {
 	WorkspaceDir string
-	ConfigDir    string
 	RunAgent     func(cfg conf.Config, wd string, debug bool) error
 }
 
@@ -64,7 +61,6 @@ func newRootCommand(opts newRootCommandOptions) *cobra.Command {
 	var (
 		baseURL        string
 		apiKey         string
-		name           string
 		autoSyncConfig bool
 		debug          bool
 	)
@@ -80,7 +76,7 @@ Build Time: %s
 Git Commit: %s`, build.GetVersion(), build.GetBuildTime(), build.GetGitCommit()),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := conf.LoadOrSaveConfig(baseURL, apiKey, name)
+			cfg, err := conf.LoadOrSaveConfig(baseURL, apiKey)
 			if err != nil {
 				return err
 			}
@@ -98,38 +94,44 @@ Git Commit: %s`, build.GetVersion(), build.GetBuildTime(), build.GetGitCommit())
 
 	rootCmd.Flags().StringVar(&baseURL, "base-url", "", "AxonHub base URL")
 	rootCmd.Flags().StringVar(&apiKey, "api-key", "", "Agent API key")
-	rootCmd.Flags().StringVar(&name, "name", "", "Agent instance name")
 	rootCmd.Flags().BoolVar(&autoSyncConfig, "auto-sync-config", false, "Automatically sync agent configuration from server")
 	rootCmd.Flags().BoolVar(&debug, "debug", false, "Enable debug logging")
 
 	rootCmd.SetHelpCommand(cmds.NewHelpCommand(rootCmd))
 
 	workspaceDir := opts.WorkspaceDir
-	configDir := opts.ConfigDir
-
-	rootCmd.AddCommand(skillscmd.NewRootCommand(skillscmd.RootOptions{
-		Use:                  "skills",
-		Stdout:               os.Stdout,
-		Stderr:               os.Stderr,
-		WorkspaceDir:         filepath.Join(workspaceDir, configDirName, "skills"),
-		Commands:             []string{"search", "list", "add", "remove"},
-		EnableAgentDiscovery: false,
-		EnableAgentFlags:     false,
-	}))
-	rootCmd.AddCommand(cmds.NewConfCommand(cmds.ConfOptions{
-		Dir:    configDir,
+	rootCmd.AddCommand(skills.NewCommand(workspaceDir))
+	rootCmd.AddCommand(cmds.NewConfCommand(cmds.StdioOptions{
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}))
-	rootCmd.AddCommand(cmds.NewMemoryCommand(cmds.MemoryOptions{
-		Dir:    configDir,
+	rootCmd.AddCommand(cmds.NewMemoryCommand(cmds.StdioOptions{
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}, workspaceDir))
+	rootCmd.AddCommand(cmds.NewDiscoverCommand(cmds.StdioOptions{
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}))
-	rootCmd.AddCommand(cmds.NewDiscoverCommand(cmds.DiscoverOptions{
-		ConfigDir: configDir,
-		Stdout:    os.Stdout,
-		Stderr:    os.Stderr,
+	rootCmd.AddCommand(cmds.NewTaskCommand(cmds.StdioOptions{
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}))
+	rootCmd.AddCommand(cmds.NewDeployCommand(cmds.StdioOptions{
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}))
+	rootCmd.AddCommand(cmds.NewMCPCommand(cmds.StdioOptions{
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}))
+	rootCmd.AddCommand(cmds.NewHeartbeatCommand(cmds.StdioOptions{
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}))
+	rootCmd.AddCommand(cmds.NewModelsCommand(cmds.StdioOptions{
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
 	}))
 
 	return rootCmd
@@ -144,13 +146,23 @@ func runAgent(cfg conf.Config, wd string, debug bool) error {
 
 	gqlClient := api.NewClient(cfg.BaseURL, cfg.APIKey)
 
-	boot, err := bootstrap.Do(ctx, gqlClient, bootstrap.SystemPromptData{
+	boot, err := bootstrap.Do(ctx, gqlClient, bootstrap.Params{
 		Workspace:  wd,
-		SkillsRoot: filepath.Join(wd, configDirName, "skills"),
-		ConfigDir:  filepath.Join(wd, configDirName),
+		SkillsRoot: filepath.Join(wd, conf.DefaultDir, "skills"),
+		ConfigDir:  filepath.Join(wd, conf.DefaultDir),
 	})
 	if err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
+	}
+
+	if err := conf.SaveBuiltinSkills(lo.Map(boot.BuiltinSkills, func(s bootstrap.BuiltinSkill, _ int) conf.BuiltinSkill {
+		return conf.BuiltinSkill{
+			Name:    s.Name,
+			Enabled: s.Enabled,
+			Order:   s.Order,
+		}
+	})); err != nil {
+		logger.Warn("save builtin skills config failed", "error", err)
 	}
 
 	logger.Info("axonclaw starting",
@@ -159,49 +171,55 @@ func runAgent(cfg conf.Config, wd string, debug bool) error {
 		"base_url", cfg.BaseURL,
 		"model", boot.Model,
 		"workspace", wd,
+		"soul", boot.Prompts != nil && !boot.Prompts.Soul.IsEmpty(),
+		"identity", boot.Prompts != nil && !boot.Prompts.Identity.IsEmpty(),
+		"user", boot.Prompts != nil && !boot.Prompts.User.IsEmpty(),
 	)
 
 	provider := anthropic.New(strings.TrimRight(cfg.BaseURL, "/")+"/anthropic", cfg.APIKey,
 		anthropic.WithReasoningEffort(boot.ReasoningEffort),
 	)
 
-	instanceName := "axonclaw"
-	if cfg.Name != "" {
-		instanceName = cfg.Name
-	}
 	platform := runtime.GOOS
 
 	if _, err := api.RegisterAgentInstance(ctx, gqlClient, &api.RegisterAgentInstanceInput{
 		ThreadID: &boot.ThreadID,
-		Name:     &instanceName,
 		Platform: &platform,
 	}); err != nil {
 		return fmt.Errorf("register instance: %w", err)
 	}
 
-	axonclawDir := filepath.Join(wd, ".axonclaw")
-	threadsDir := filepath.Join(axonclawDir, threadsDirName)
-	if err := os.MkdirAll(threadsDir, 0o755); err != nil {
-		return fmt.Errorf("create threads directory: %w", err)
+	axonclawDir := filepath.Join(wd, conf.DefaultDir)
+
+	var contextMgr agent.ContextManager
+
+	contextCfg := claw.DefaultContextManagerConfig()
+	contextCfg.Enabled = true
+	contextCfg.Logger = logger
+	if cfg.ContextRecentMessages > 0 {
+		contextCfg.MaxRecentMessages = cfg.ContextRecentMessages
+	}
+	if cfg.ContextSoftTokenLimit > 0 {
+		contextCfg.SoftTokenLimit = cfg.ContextSoftTokenLimit
 	}
 
-	threadStore, err := thread.NewJSONLStore(threadsDir)
-	if err != nil {
-		return fmt.Errorf("initialize thread store: %w", err)
-	}
-	threadMgr := thread.NewManager(threadStore)
+	subagentMgr := subagent.NewManagerFromPath(filepath.Join(wd, "subagents"))
+	subagentMgr.RegisterBundled(claw.SummarizerDefinition())
 
-	eventBus := bus.New(
-		bus.WithRecover(logger),
-		bus.WithTracing(),
-	)
+	if err := subagentMgr.Load(); err != nil {
+		logger.Warn("failed to load subagent definitions", "error", err)
+	}
+
+	eventBus := bus.New(bus.WithRecover(logger), bus.WithTracing())
 	defer eventBus.Close()
 
-	eventBus.Subscribe(agent.TopicAgentEvent, bus.TypedHandler(func(_ context.Context, _ bus.Event, ev agent.AgentEvent) error {
+	eventBus.Subscribe(agent.TopicAgentEvent, bus.TypedHandler(func(ctx context.Context, _ bus.Event, ev agent.AgentEvent) error {
 		switch ev.Type {
 		case agent.EventMessageAdded:
 			if ev.Message != nil {
-				threadMgr.AddMessage(boot.ThreadID, *ev.Message)
+				if err := claw.AppendArchiveMessage(ctx, wd, *ev.Message); err != nil {
+					logger.Warn("archive append failed", "error", err)
+				}
 			}
 		case agent.EventToolStart:
 			logger.Debug("tool started", "tool", ev.ToolName)
@@ -215,7 +233,33 @@ func runAgent(cfg conf.Config, wd string, debug bool) error {
 		return nil
 	}))
 
-	grantsStore := grant.NewMemoryStore(grant.NewFileStore(filepath.Join(wd, ".axonclaw", "permission")))
+	skillMgr := claw.NewSkillManager(wd, boot, logger)
+
+	contextCfg.Summarizer = claw.NewSmartSummarizer(claw.SmartSummarizerOptions{
+		Manager:   subagentMgr,
+		Provider:  provider,
+		Model:     boot.Model,
+		SkillMgr:  skillMgr,
+		Workspace: wd,
+		Bus:       eventBus,
+		Logger:    logger,
+	})
+
+	contextStore := claw.NewContextManagerFileStore(filepath.Join(axonclawDir, "messages"))
+
+	cm, err := claw.NewSmartContextManager(contextCfg, contextStore)
+	if err != nil {
+		return fmt.Errorf("initialize context manager: %w", err)
+	}
+
+	contextMgr = cm
+
+	permissionDir, err := conf.PermissionDir()
+	if err != nil {
+		return fmt.Errorf("resolve permission directory: %w", err)
+	}
+
+	grantsStore := grant.NewMemoryStore(grant.NewFileStore(permissionDir))
 	if err := grantsStore.LoadGlobal(); err != nil {
 		return fmt.Errorf("load global grants: %w", err)
 	}
@@ -223,7 +267,7 @@ func runAgent(cfg conf.Config, wd string, debug bool) error {
 		return fmt.Errorf("load workspace grants: %w", err)
 	}
 
-	pdoc, err := conf.LoadOrCreatePolicy(wd)
+	pdoc, err := conf.LoadOrCreatePolicy()
 	if err != nil {
 		return fmt.Errorf("load policy: %w", err)
 	}
@@ -240,17 +284,49 @@ func runAgent(cfg conf.Config, wd string, debug bool) error {
 		Grants:   grantsStore,
 	})
 
-	r := runner.New(runner.NewOptions{
-		Logger:        logger,
-		Client:        gqlClient,
-		Provider:      provider,
-		Config:        cfg,
-		Workspace:     wd,
-		Boot:          boot,
-		ThreadMgr:     threadMgr,
-		PermEvaluator: permEvaluator,
-		Bus:           eventBus,
+	r := claw.New(claw.NewOptions{
+		Logger:         logger,
+		Client:         gqlClient,
+		Provider:       provider,
+		ContextManager: contextMgr,
+		Config:         cfg,
+		Workspace:      wd,
+		Boot:           boot,
+		PermEvaluator:  permEvaluator,
+		Bus:            eventBus,
+		SubagentMgr:    subagentMgr,
+		SkillMgr:       skillMgr,
 	})
+
+	cm.OnCompaction(func() {
+		r.ReloadSystemPrompts()
+	})
+
+	defer func() {
+		if err := r.Close(); err != nil {
+			logger.Warn("close runner failed", "error", err)
+		}
+	}()
+
+	taskStore, err := task.NewStore(filepath.Join(axonclawDir, "tasks"))
+	if err != nil {
+		return fmt.Errorf("init task store: %w", err)
+	}
+
+	if err := claw.EnsureSystemTasks(taskStore); err != nil {
+		return fmt.Errorf("ensure system tasks: %w", err)
+	}
+
+	taskHandler := claw.NewTaskHandler(logger, wd, r)
+	taskScheduler, err := task.NewScheduler(logger, taskStore, taskHandler, task.SchedulerOptions{
+		TickInterval: time.Minute,
+	})
+	if err != nil {
+		return fmt.Errorf("init task scheduler: %w", err)
+	}
+	taskScheduler.Start(ctx)
+	defer taskScheduler.Stop()
+
 	if err := r.Run(ctx); err != nil {
 		if err != context.Canceled {
 			logger.Error("runner stopped with error", "error", err)
@@ -274,7 +350,7 @@ func fatalf(format string, args ...any) {
 }
 
 func mustInitLogger(wd string, debug bool) (*slog.Logger, loggerCloser) {
-	logsDir := filepath.Join(wd, ".axonclaw", logsDirName)
+	logsDir := filepath.Join(wd, conf.DefaultDir, logsDirName)
 	if err := os.MkdirAll(logsDir, 0o755); err != nil {
 		fatalf("cannot create logs directory: %v", err)
 	}

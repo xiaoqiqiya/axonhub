@@ -185,7 +185,10 @@ func (_c *ChannelOverrideTemplateCreate) defaults() error {
 		_c.mutation.SetDeletedAt(v)
 	}
 	if _, ok := _c.mutation.OverrideParameters(); !ok {
-		v := channeloverridetemplate.DefaultOverrideParameters
+		if channeloverridetemplate.DefaultOverrideParameters == nil {
+			return fmt.Errorf("ent: uninitialized channeloverridetemplate.DefaultOverrideParameters (forgotten import ent/runtime?)")
+		}
+		v := channeloverridetemplate.DefaultOverrideParameters()
 		_c.mutation.SetOverrideParameters(v)
 	}
 	if _, ok := _c.mutation.OverrideHeaders(); !ok {
@@ -205,12 +208,6 @@ func (_c *ChannelOverrideTemplateCreate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ChannelOverrideTemplateCreate) check() error {
-	if _, ok := _c.mutation.CreatedAt(); !ok {
-		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "ChannelOverrideTemplate.created_at"`)}
-	}
-	if _, ok := _c.mutation.UpdatedAt(); !ok {
-		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "ChannelOverrideTemplate.updated_at"`)}
-	}
 	if _, ok := _c.mutation.DeletedAt(); !ok {
 		return &ValidationError{Name: "deleted_at", err: errors.New(`ent: missing required field "ChannelOverrideTemplate.deleted_at"`)}
 	}

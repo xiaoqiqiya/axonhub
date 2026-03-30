@@ -7,13 +7,15 @@ import (
 
 	"github.com/looplj/axonhub/internal/ent/agenthost"
 	"github.com/looplj/axonhub/internal/ent/agentinstance"
-	"github.com/looplj/axonhub/internal/ent/agentmessage"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/messagechannel"
+	"github.com/looplj/axonhub/internal/ent/messagechannelbindingrequest"
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
+	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/promptversion"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/role"
@@ -96,6 +98,7 @@ type CreateAgentHostInput struct {
 	AuthMethod    *agenthost.AuthMethod
 	Password      *string
 	SSHPrivateKey *string
+	Directory     *string
 }
 
 // Mutate applies the CreateAgentHostInput on the AgentHostMutation builder.
@@ -122,6 +125,9 @@ func (i *CreateAgentHostInput) Mutate(m *AgentHostMutation) {
 	if v := i.SSHPrivateKey; v != nil {
 		m.SetSSHPrivateKey(*v)
 	}
+	if v := i.Directory; v != nil {
+		m.SetDirectory(*v)
+	}
 }
 
 // SetInput applies the change-set in the CreateAgentHostInput on the AgentHostCreate builder.
@@ -133,22 +139,19 @@ func (c *AgentHostCreate) SetInput(i CreateAgentHostInput) *AgentHostCreate {
 // UpdateAgentHostInput represents a mutation input for updating agenthosts.
 type UpdateAgentHostInput struct {
 	Name          *string
-	Type          *agenthost.Type
 	Status        *agenthost.Status
 	Addr          *string
 	User          *string
 	AuthMethod    *agenthost.AuthMethod
 	Password      *string
 	SSHPrivateKey *string
+	Directory     *string
 }
 
 // Mutate applies the UpdateAgentHostInput on the AgentHostMutation builder.
 func (i *UpdateAgentHostInput) Mutate(m *AgentHostMutation) {
 	if v := i.Name; v != nil {
 		m.SetName(*v)
-	}
-	if v := i.Type; v != nil {
-		m.SetType(*v)
 	}
 	if v := i.Status; v != nil {
 		m.SetStatus(*v)
@@ -167,6 +170,9 @@ func (i *UpdateAgentHostInput) Mutate(m *AgentHostMutation) {
 	}
 	if v := i.SSHPrivateKey; v != nil {
 		m.SetSSHPrivateKey(*v)
+	}
+	if v := i.Directory; v != nil {
+		m.SetDirectory(*v)
 	}
 }
 
@@ -189,7 +195,7 @@ type CreateAgentInstanceInput struct {
 	Description     *string
 	Platform        *string
 	LastHeartbeatAt time.Time
-	Deployment      *objects.AgentInstanceDeployment
+	AxonhubBaseURL  *string
 	Status          *agentinstance.Status
 	AgentID         int
 	HostID          *int
@@ -209,8 +215,8 @@ func (i *CreateAgentInstanceInput) Mutate(m *AgentInstanceMutation) {
 		m.SetPlatform(*v)
 	}
 	m.SetLastHeartbeatAt(i.LastHeartbeatAt)
-	if v := i.Deployment; v != nil {
-		m.SetDeployment(*v)
+	if v := i.AxonhubBaseURL; v != nil {
+		m.SetAxonhubBaseURL(*v)
 	}
 	if v := i.Status; v != nil {
 		m.SetStatus(*v)
@@ -234,8 +240,7 @@ type UpdateAgentInstanceInput struct {
 	Description     *string
 	Platform        *string
 	LastHeartbeatAt *time.Time
-	ClearDeployment bool
-	Deployment      *objects.AgentInstanceDeployment
+	AxonhubBaseURL  *string
 	Status          *agentinstance.Status
 	ClearHost       bool
 	HostID          *int
@@ -255,11 +260,8 @@ func (i *UpdateAgentInstanceInput) Mutate(m *AgentInstanceMutation) {
 	if v := i.LastHeartbeatAt; v != nil {
 		m.SetLastHeartbeatAt(*v)
 	}
-	if i.ClearDeployment {
-		m.ClearDeployment()
-	}
-	if v := i.Deployment; v != nil {
-		m.SetDeployment(*v)
+	if v := i.AxonhubBaseURL; v != nil {
+		m.SetAxonhubBaseURL(*v)
 	}
 	if v := i.Status; v != nil {
 		m.SetStatus(*v)
@@ -348,124 +350,6 @@ func (c *AgentMemoryUpdate) SetInput(i UpdateAgentMemoryInput) *AgentMemoryUpdat
 
 // SetInput applies the change-set in the UpdateAgentMemoryInput on the AgentMemoryUpdateOne builder.
 func (c *AgentMemoryUpdateOne) SetInput(i UpdateAgentMemoryInput) *AgentMemoryUpdateOne {
-	i.Mutate(c.Mutation())
-	return c
-}
-
-// CreateAgentMessageInput represents a mutation input for creating agentmessages.
-type CreateAgentMessageInput struct {
-	ProjectID       int
-	Direction       agentmessage.Direction
-	SenderType      agentmessage.SenderType
-	SenderID        *int
-	Type            *agentmessage.Type
-	CorrelationID   *string
-	Content         objects.JSONRawMessage
-	Status          *agentmessage.Status
-	Sequence        int64
-	ExpiresAt       *time.Time
-	AgentID         int
-	AgentInstanceID int
-}
-
-// Mutate applies the CreateAgentMessageInput on the AgentMessageMutation builder.
-func (i *CreateAgentMessageInput) Mutate(m *AgentMessageMutation) {
-	m.SetProjectID(i.ProjectID)
-	m.SetDirection(i.Direction)
-	m.SetSenderType(i.SenderType)
-	if v := i.SenderID; v != nil {
-		m.SetSenderID(*v)
-	}
-	if v := i.Type; v != nil {
-		m.SetType(*v)
-	}
-	if v := i.CorrelationID; v != nil {
-		m.SetCorrelationID(*v)
-	}
-	if v := i.Content; v != nil {
-		m.SetContent(v)
-	}
-	if v := i.Status; v != nil {
-		m.SetStatus(*v)
-	}
-	m.SetSequence(i.Sequence)
-	if v := i.ExpiresAt; v != nil {
-		m.SetExpiresAt(*v)
-	}
-	m.SetAgentID(i.AgentID)
-	m.SetAgentInstanceID(i.AgentInstanceID)
-}
-
-// SetInput applies the change-set in the CreateAgentMessageInput on the AgentMessageCreate builder.
-func (c *AgentMessageCreate) SetInput(i CreateAgentMessageInput) *AgentMessageCreate {
-	i.Mutate(c.Mutation())
-	return c
-}
-
-// UpdateAgentMessageInput represents a mutation input for updating agentmessages.
-type UpdateAgentMessageInput struct {
-	Direction      *agentmessage.Direction
-	SenderType     *agentmessage.SenderType
-	ClearSenderID  bool
-	SenderID       *int
-	Type           *agentmessage.Type
-	CorrelationID  *string
-	Content        objects.JSONRawMessage
-	AppendContent  objects.JSONRawMessage
-	Status         *agentmessage.Status
-	Sequence       *int64
-	ClearExpiresAt bool
-	ExpiresAt      *time.Time
-}
-
-// Mutate applies the UpdateAgentMessageInput on the AgentMessageMutation builder.
-func (i *UpdateAgentMessageInput) Mutate(m *AgentMessageMutation) {
-	if v := i.Direction; v != nil {
-		m.SetDirection(*v)
-	}
-	if v := i.SenderType; v != nil {
-		m.SetSenderType(*v)
-	}
-	if i.ClearSenderID {
-		m.ClearSenderID()
-	}
-	if v := i.SenderID; v != nil {
-		m.SetSenderID(*v)
-	}
-	if v := i.Type; v != nil {
-		m.SetType(*v)
-	}
-	if v := i.CorrelationID; v != nil {
-		m.SetCorrelationID(*v)
-	}
-	if v := i.Content; v != nil {
-		m.SetContent(v)
-	}
-	if i.AppendContent != nil {
-		m.AppendContent(i.Content)
-	}
-	if v := i.Status; v != nil {
-		m.SetStatus(*v)
-	}
-	if v := i.Sequence; v != nil {
-		m.SetSequence(*v)
-	}
-	if i.ClearExpiresAt {
-		m.ClearExpiresAt()
-	}
-	if v := i.ExpiresAt; v != nil {
-		m.SetExpiresAt(*v)
-	}
-}
-
-// SetInput applies the change-set in the UpdateAgentMessageInput on the AgentMessageUpdate builder.
-func (c *AgentMessageUpdate) SetInput(i UpdateAgentMessageInput) *AgentMessageUpdate {
-	i.Mutate(c.Mutation())
-	return c
-}
-
-// SetInput applies the change-set in the UpdateAgentMessageInput on the AgentMessageUpdateOne builder.
-func (c *AgentMessageUpdateOne) SetInput(i UpdateAgentMessageInput) *AgentMessageUpdateOne {
 	i.Mutate(c.Mutation())
 	return c
 }
@@ -686,6 +570,7 @@ func (c *ChannelCreate) SetInput(i CreateChannelInput) *ChannelCreate {
 
 // UpdateChannelInput represents a mutation input for updating channels.
 type UpdateChannelInput struct {
+	Type                      *channel.Type
 	ClearBaseURL              bool
 	BaseURL                   *string
 	Name                      *string
@@ -716,6 +601,9 @@ type UpdateChannelInput struct {
 
 // Mutate applies the UpdateChannelInput on the ChannelMutation builder.
 func (i *UpdateChannelInput) Mutate(m *ChannelMutation) {
+	if v := i.Type; v != nil {
+		m.SetType(*v)
+	}
 	if i.ClearBaseURL {
 		m.ClearBaseURL()
 	}
@@ -956,6 +844,182 @@ func (c *DataStorageUpdateOne) SetInput(i UpdateDataStorageInput) *DataStorageUp
 	return c
 }
 
+// CreateMessageChannelInput represents a mutation input for creating messagechannels.
+type CreateMessageChannelInput struct {
+	Name        string
+	Description *string
+	Type        *messagechannel.Type
+	Status      *messagechannel.Status
+	Settings    *objects.MessageChannelSettings
+}
+
+// Mutate applies the CreateMessageChannelInput on the MessageChannelMutation builder.
+func (i *CreateMessageChannelInput) Mutate(m *MessageChannelMutation) {
+	m.SetName(i.Name)
+	if v := i.Description; v != nil {
+		m.SetDescription(*v)
+	}
+	if v := i.Type; v != nil {
+		m.SetType(*v)
+	}
+	if v := i.Status; v != nil {
+		m.SetStatus(*v)
+	}
+	if v := i.Settings; v != nil {
+		m.SetSettings(*v)
+	}
+}
+
+// SetInput applies the change-set in the CreateMessageChannelInput on the MessageChannelCreate builder.
+func (c *MessageChannelCreate) SetInput(i CreateMessageChannelInput) *MessageChannelCreate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// UpdateMessageChannelInput represents a mutation input for updating messagechannels.
+type UpdateMessageChannelInput struct {
+	Name          *string
+	Description   *string
+	Type          *messagechannel.Type
+	Status        *messagechannel.Status
+	ClearSettings bool
+	Settings      *objects.MessageChannelSettings
+}
+
+// Mutate applies the UpdateMessageChannelInput on the MessageChannelMutation builder.
+func (i *UpdateMessageChannelInput) Mutate(m *MessageChannelMutation) {
+	if v := i.Name; v != nil {
+		m.SetName(*v)
+	}
+	if v := i.Description; v != nil {
+		m.SetDescription(*v)
+	}
+	if v := i.Type; v != nil {
+		m.SetType(*v)
+	}
+	if v := i.Status; v != nil {
+		m.SetStatus(*v)
+	}
+	if i.ClearSettings {
+		m.ClearSettings()
+	}
+	if v := i.Settings; v != nil {
+		m.SetSettings(*v)
+	}
+}
+
+// SetInput applies the change-set in the UpdateMessageChannelInput on the MessageChannelUpdate builder.
+func (c *MessageChannelUpdate) SetInput(i UpdateMessageChannelInput) *MessageChannelUpdate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// SetInput applies the change-set in the UpdateMessageChannelInput on the MessageChannelUpdateOne builder.
+func (c *MessageChannelUpdateOne) SetInput(i UpdateMessageChannelInput) *MessageChannelUpdateOne {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// CreateMessageChannelAgentInstanceInput represents a mutation input for creating messagechannelagentinstances.
+type CreateMessageChannelAgentInstanceInput struct {
+	Enabled          *bool
+	Config           *objects.MessageChannelAgentInstanceBinding
+	MessageChannelID int
+	AgentInstanceID  int
+}
+
+// Mutate applies the CreateMessageChannelAgentInstanceInput on the MessageChannelAgentInstanceMutation builder.
+func (i *CreateMessageChannelAgentInstanceInput) Mutate(m *MessageChannelAgentInstanceMutation) {
+	if v := i.Enabled; v != nil {
+		m.SetEnabled(*v)
+	}
+	if v := i.Config; v != nil {
+		m.SetConfig(*v)
+	}
+	m.SetMessageChannelID(i.MessageChannelID)
+	m.SetAgentInstanceID(i.AgentInstanceID)
+}
+
+// SetInput applies the change-set in the CreateMessageChannelAgentInstanceInput on the MessageChannelAgentInstanceCreate builder.
+func (c *MessageChannelAgentInstanceCreate) SetInput(i CreateMessageChannelAgentInstanceInput) *MessageChannelAgentInstanceCreate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// UpdateMessageChannelAgentInstanceInput represents a mutation input for updating messagechannelagentinstances.
+type UpdateMessageChannelAgentInstanceInput struct {
+	Enabled *bool
+	Config  *objects.MessageChannelAgentInstanceBinding
+}
+
+// Mutate applies the UpdateMessageChannelAgentInstanceInput on the MessageChannelAgentInstanceMutation builder.
+func (i *UpdateMessageChannelAgentInstanceInput) Mutate(m *MessageChannelAgentInstanceMutation) {
+	if v := i.Enabled; v != nil {
+		m.SetEnabled(*v)
+	}
+	if v := i.Config; v != nil {
+		m.SetConfig(*v)
+	}
+}
+
+// SetInput applies the change-set in the UpdateMessageChannelAgentInstanceInput on the MessageChannelAgentInstanceUpdate builder.
+func (c *MessageChannelAgentInstanceUpdate) SetInput(i UpdateMessageChannelAgentInstanceInput) *MessageChannelAgentInstanceUpdate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// SetInput applies the change-set in the UpdateMessageChannelAgentInstanceInput on the MessageChannelAgentInstanceUpdateOne builder.
+func (c *MessageChannelAgentInstanceUpdateOne) SetInput(i UpdateMessageChannelAgentInstanceInput) *MessageChannelAgentInstanceUpdateOne {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// CreateMessageChannelBindingRequestInput represents a mutation input for creating messagechannelbindingrequests.
+type CreateMessageChannelBindingRequestInput struct {
+	MessageChannelID int
+	AgentInstanceID  int
+	Type             *messagechannelbindingrequest.Type
+}
+
+// Mutate applies the CreateMessageChannelBindingRequestInput on the MessageChannelBindingRequestMutation builder.
+func (i *CreateMessageChannelBindingRequestInput) Mutate(m *MessageChannelBindingRequestMutation) {
+	m.SetMessageChannelID(i.MessageChannelID)
+	m.SetAgentInstanceID(i.AgentInstanceID)
+	if v := i.Type; v != nil {
+		m.SetType(*v)
+	}
+}
+
+// SetInput applies the change-set in the CreateMessageChannelBindingRequestInput on the MessageChannelBindingRequestCreate builder.
+func (c *MessageChannelBindingRequestCreate) SetInput(i CreateMessageChannelBindingRequestInput) *MessageChannelBindingRequestCreate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// UpdateMessageChannelBindingRequestInput represents a mutation input for updating messagechannelbindingrequests.
+type UpdateMessageChannelBindingRequestInput struct {
+	Type *messagechannelbindingrequest.Type
+}
+
+// Mutate applies the UpdateMessageChannelBindingRequestInput on the MessageChannelBindingRequestMutation builder.
+func (i *UpdateMessageChannelBindingRequestInput) Mutate(m *MessageChannelBindingRequestMutation) {
+	if v := i.Type; v != nil {
+		m.SetType(*v)
+	}
+}
+
+// SetInput applies the change-set in the UpdateMessageChannelBindingRequestInput on the MessageChannelBindingRequestUpdate builder.
+func (c *MessageChannelBindingRequestUpdate) SetInput(i UpdateMessageChannelBindingRequestInput) *MessageChannelBindingRequestUpdate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// SetInput applies the change-set in the UpdateMessageChannelBindingRequestInput on the MessageChannelBindingRequestUpdateOne builder.
+func (c *MessageChannelBindingRequestUpdateOne) SetInput(i UpdateMessageChannelBindingRequestInput) *MessageChannelBindingRequestUpdateOne {
+	i.Mutate(c.Mutation())
+	return c
+}
+
 // CreateModelInput represents a mutation input for creating models.
 type CreateModelInput struct {
 	Developer string
@@ -998,6 +1062,9 @@ func (c *ModelCreate) SetInput(i CreateModelInput) *ModelCreate {
 
 // UpdateModelInput represents a mutation input for updating models.
 type UpdateModelInput struct {
+	Developer   *string
+	ModelID     *string
+	Type        *model.Type
 	Name        *string
 	Icon        *string
 	Group       *string
@@ -1010,6 +1077,15 @@ type UpdateModelInput struct {
 
 // Mutate applies the UpdateModelInput on the ModelMutation builder.
 func (i *UpdateModelInput) Mutate(m *ModelMutation) {
+	if v := i.Developer; v != nil {
+		m.SetDeveloper(*v)
+	}
+	if v := i.ModelID; v != nil {
+		m.SetModelID(*v)
+	}
+	if v := i.Type; v != nil {
+		m.SetType(*v)
+	}
 	if v := i.Name; v != nil {
 		m.SetName(*v)
 	}
@@ -1250,6 +1326,72 @@ func (c *PromptUpdate) SetInput(i UpdatePromptInput) *PromptUpdate {
 
 // SetInput applies the change-set in the UpdatePromptInput on the PromptUpdateOne builder.
 func (c *PromptUpdateOne) SetInput(i UpdatePromptInput) *PromptUpdateOne {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// CreatePromptProtectionRuleInput represents a mutation input for creating promptprotectionrules.
+type CreatePromptProtectionRuleInput struct {
+	Name        string
+	Description *string
+	Pattern     string
+	Settings    *objects.PromptProtectionSettings
+}
+
+// Mutate applies the CreatePromptProtectionRuleInput on the PromptProtectionRuleMutation builder.
+func (i *CreatePromptProtectionRuleInput) Mutate(m *PromptProtectionRuleMutation) {
+	m.SetName(i.Name)
+	if v := i.Description; v != nil {
+		m.SetDescription(*v)
+	}
+	m.SetPattern(i.Pattern)
+	if v := i.Settings; v != nil {
+		m.SetSettings(v)
+	}
+}
+
+// SetInput applies the change-set in the CreatePromptProtectionRuleInput on the PromptProtectionRuleCreate builder.
+func (c *PromptProtectionRuleCreate) SetInput(i CreatePromptProtectionRuleInput) *PromptProtectionRuleCreate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// UpdatePromptProtectionRuleInput represents a mutation input for updating promptprotectionrules.
+type UpdatePromptProtectionRuleInput struct {
+	Name        *string
+	Description *string
+	Pattern     *string
+	Status      *promptprotectionrule.Status
+	Settings    *objects.PromptProtectionSettings
+}
+
+// Mutate applies the UpdatePromptProtectionRuleInput on the PromptProtectionRuleMutation builder.
+func (i *UpdatePromptProtectionRuleInput) Mutate(m *PromptProtectionRuleMutation) {
+	if v := i.Name; v != nil {
+		m.SetName(*v)
+	}
+	if v := i.Description; v != nil {
+		m.SetDescription(*v)
+	}
+	if v := i.Pattern; v != nil {
+		m.SetPattern(*v)
+	}
+	if v := i.Status; v != nil {
+		m.SetStatus(*v)
+	}
+	if v := i.Settings; v != nil {
+		m.SetSettings(v)
+	}
+}
+
+// SetInput applies the change-set in the UpdatePromptProtectionRuleInput on the PromptProtectionRuleUpdate builder.
+func (c *PromptProtectionRuleUpdate) SetInput(i UpdatePromptProtectionRuleInput) *PromptProtectionRuleUpdate {
+	i.Mutate(c.Mutation())
+	return c
+}
+
+// SetInput applies the change-set in the UpdatePromptProtectionRuleInput on the PromptProtectionRuleUpdateOne builder.
+func (c *PromptProtectionRuleUpdateOne) SetInput(i UpdatePromptProtectionRuleInput) *PromptProtectionRuleUpdateOne {
 	i.Mutate(c.Mutation())
 	return c
 }

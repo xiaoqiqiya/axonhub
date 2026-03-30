@@ -29,12 +29,24 @@ func (svc *AgentDeployService) deployToLocal(ctx context.Context, runtime *ent.A
 			return svc.deployToLocalWindows(ctx, apiKey, name, directory, baseURL)
 		}
 
-		unzipCmd := fmt.Sprintf("unzip -o %s -d %s && chmod +x %s/start.sh %s/stop.sh", debugLocalPath, directory, directory, directory)
+		unzipCmd := fmt.Sprintf(
+			"unzip -o %s -d %s && chmod +x %s/start.sh %s/stop.sh",
+			shellQuote(debugLocalPath),
+			shellQuote(directory),
+			shellQuote(directory),
+			shellQuote(directory),
+		)
 		if err := exec.CommandContext(ctx, "sh", "-c", unzipCmd).Run(); err != nil {
 			return fmt.Errorf("failed to unzip debug package: %w", err)
 		}
 
-		startCmd := fmt.Sprintf("cd %s && AXONCLAW_NAME=%s AXONCLAW_BASE_URL=%s AXONCLAW_API_KEY=%s ./start.sh", directory, name, baseURL, apiKey.Key)
+		startCmd := fmt.Sprintf(
+			"cd %s && AXONCLAW_NAME=%s AXONCLAW_BASE_URL=%s AXONCLAW_API_KEY=%s ./start.sh",
+			shellQuote(directory),
+			shellQuote(name),
+			shellQuote(baseURL),
+			shellQuote(apiKey.Key),
+		)
 		if err := exec.CommandContext(ctx, "sh", "-c", startCmd).Run(); err != nil {
 			return fmt.Errorf("failed to start debug axonclaw: %w", err)
 		}
@@ -156,9 +168,9 @@ func (svc *AgentDeployService) localInstallLatest(ctx context.Context, apiKey *e
 			return nil
 		}
 
-		unzipCmd := fmt.Sprintf("unzip -o %s -d %s && chmod +x %s/start.sh %s/stop.sh", debugLocalPath, directory, directory, directory)
+		unzipCmd := fmt.Sprintf("unzip -o %s -d %s && chmod +x %s/start.sh %s/stop.sh", shellQuote(debugLocalPath), shellQuote(directory), shellQuote(directory), shellQuote(directory))
 		if err := exec.CommandContext(ctx, "sh", "-c", unzipCmd).Run(); err != nil {
-			return fmt.Errorf("failed to unzip debug package: %w", err)
+			return fmt.Errorf("failed to unzip debug package: %w at %s", err, debugLocalPath)
 		}
 
 		return nil

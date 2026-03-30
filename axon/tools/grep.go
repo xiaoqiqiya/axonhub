@@ -123,19 +123,30 @@ func (t *GrepTool) Definition() agent.ToolDefinition {
 }
 
 func (t *GrepTool) Execute(ctx context.Context, input grepInput) agent.ToolResult {
-	searchPath := t.workspace
+	searchRoot := normalizeWorkspacePath(t.workspace)
+	searchPath := "."
+	pathPrefix := ""
 	if input.Path != "" {
 		resolved, err := validatePath(input.Path, t.workspace, t.restrict)
 		if err != nil {
 			return ErrorResult(err)
 		}
-		searchPath = resolved
+
+		scope, err := resolveFSScope(resolved, t.workspace)
+		if err != nil {
+			return ErrorResult(err)
+		}
+
+		searchRoot = scope.root
+		searchPath = scope.path
+		pathPrefix = scope.displayPrefix
 	}
 
-	searcher := grep.NewSearcher(t.workspace)
+	searcher := grep.NewSearcher(searchRoot)
 	opts := grep.Options{
 		Pattern:    input.Pattern,
 		Path:       searchPath,
+		PathPrefix: pathPrefix,
 		Glob:       input.Glob,
 		OutputMode: input.OutputMode,
 		Before:     input.Before,

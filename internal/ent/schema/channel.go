@@ -49,6 +49,7 @@ func (Channel) Fields() []ent.Field {
 				"deepseek",
 				"deepseek_anthropic",
 				"deepinfra",
+				"fireworks",
 				"doubao",
 				"doubao_anthropic",
 				"moonshot",
@@ -84,7 +85,6 @@ func (Channel) Fields() []ent.Field {
 				"search_brave",
 				"search_exa",
 			).
-			Immutable().
 			Annotations(
 				entgql.OrderField("TYPE"),
 			),

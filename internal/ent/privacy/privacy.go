@@ -471,6 +471,78 @@ func (f DataStorageMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mut
 	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.DataStorageMutation", m)
 }
 
+// The MessageChannelQueryRuleFunc type is an adapter to allow the use of ordinary
+// functions as a query rule.
+type MessageChannelQueryRuleFunc func(context.Context, *ent.MessageChannelQuery) error
+
+// EvalQuery return f(ctx, q).
+func (f MessageChannelQueryRuleFunc) EvalQuery(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.MessageChannelQuery); ok {
+		return f(ctx, q)
+	}
+	return Denyf("ent/privacy: unexpected query type %T, expect *ent.MessageChannelQuery", q)
+}
+
+// The MessageChannelMutationRuleFunc type is an adapter to allow the use of ordinary
+// functions as a mutation rule.
+type MessageChannelMutationRuleFunc func(context.Context, *ent.MessageChannelMutation) error
+
+// EvalMutation calls f(ctx, m).
+func (f MessageChannelMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation) error {
+	if m, ok := m.(*ent.MessageChannelMutation); ok {
+		return f(ctx, m)
+	}
+	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.MessageChannelMutation", m)
+}
+
+// The MessageChannelAgentInstanceQueryRuleFunc type is an adapter to allow the use of ordinary
+// functions as a query rule.
+type MessageChannelAgentInstanceQueryRuleFunc func(context.Context, *ent.MessageChannelAgentInstanceQuery) error
+
+// EvalQuery return f(ctx, q).
+func (f MessageChannelAgentInstanceQueryRuleFunc) EvalQuery(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.MessageChannelAgentInstanceQuery); ok {
+		return f(ctx, q)
+	}
+	return Denyf("ent/privacy: unexpected query type %T, expect *ent.MessageChannelAgentInstanceQuery", q)
+}
+
+// The MessageChannelAgentInstanceMutationRuleFunc type is an adapter to allow the use of ordinary
+// functions as a mutation rule.
+type MessageChannelAgentInstanceMutationRuleFunc func(context.Context, *ent.MessageChannelAgentInstanceMutation) error
+
+// EvalMutation calls f(ctx, m).
+func (f MessageChannelAgentInstanceMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation) error {
+	if m, ok := m.(*ent.MessageChannelAgentInstanceMutation); ok {
+		return f(ctx, m)
+	}
+	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.MessageChannelAgentInstanceMutation", m)
+}
+
+// The MessageChannelBindingRequestQueryRuleFunc type is an adapter to allow the use of ordinary
+// functions as a query rule.
+type MessageChannelBindingRequestQueryRuleFunc func(context.Context, *ent.MessageChannelBindingRequestQuery) error
+
+// EvalQuery return f(ctx, q).
+func (f MessageChannelBindingRequestQueryRuleFunc) EvalQuery(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.MessageChannelBindingRequestQuery); ok {
+		return f(ctx, q)
+	}
+	return Denyf("ent/privacy: unexpected query type %T, expect *ent.MessageChannelBindingRequestQuery", q)
+}
+
+// The MessageChannelBindingRequestMutationRuleFunc type is an adapter to allow the use of ordinary
+// functions as a mutation rule.
+type MessageChannelBindingRequestMutationRuleFunc func(context.Context, *ent.MessageChannelBindingRequestMutation) error
+
+// EvalMutation calls f(ctx, m).
+func (f MessageChannelBindingRequestMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation) error {
+	if m, ok := m.(*ent.MessageChannelBindingRequestMutation); ok {
+		return f(ctx, m)
+	}
+	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.MessageChannelBindingRequestMutation", m)
+}
+
 // The ModelQueryRuleFunc type is an adapter to allow the use of ordinary
 // functions as a query rule.
 type ModelQueryRuleFunc func(context.Context, *ent.ModelQuery) error
@@ -541,6 +613,30 @@ func (f PromptMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation
 		return f(ctx, m)
 	}
 	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.PromptMutation", m)
+}
+
+// The PromptProtectionRuleQueryRuleFunc type is an adapter to allow the use of ordinary
+// functions as a query rule.
+type PromptProtectionRuleQueryRuleFunc func(context.Context, *ent.PromptProtectionRuleQuery) error
+
+// EvalQuery return f(ctx, q).
+func (f PromptProtectionRuleQueryRuleFunc) EvalQuery(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.PromptProtectionRuleQuery); ok {
+		return f(ctx, q)
+	}
+	return Denyf("ent/privacy: unexpected query type %T, expect *ent.PromptProtectionRuleQuery", q)
+}
+
+// The PromptProtectionRuleMutationRuleFunc type is an adapter to allow the use of ordinary
+// functions as a mutation rule.
+type PromptProtectionRuleMutationRuleFunc func(context.Context, *ent.PromptProtectionRuleMutation) error
+
+// EvalMutation calls f(ctx, m).
+func (f PromptProtectionRuleMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation) error {
+	if m, ok := m.(*ent.PromptProtectionRuleMutation); ok {
+		return f(ctx, m)
+	}
+	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.PromptProtectionRuleMutation", m)
 }
 
 // The PromptVersionQueryRuleFunc type is an adapter to allow the use of ordinary
@@ -944,11 +1040,19 @@ func queryFilter(q ent.Query) (Filter, error) {
 		return q.Filter(), nil
 	case *ent.DataStorageQuery:
 		return q.Filter(), nil
+	case *ent.MessageChannelQuery:
+		return q.Filter(), nil
+	case *ent.MessageChannelAgentInstanceQuery:
+		return q.Filter(), nil
+	case *ent.MessageChannelBindingRequestQuery:
+		return q.Filter(), nil
 	case *ent.ModelQuery:
 		return q.Filter(), nil
 	case *ent.ProjectQuery:
 		return q.Filter(), nil
 	case *ent.PromptQuery:
+		return q.Filter(), nil
+	case *ent.PromptProtectionRuleQuery:
 		return q.Filter(), nil
 	case *ent.PromptVersionQuery:
 		return q.Filter(), nil
@@ -1015,11 +1119,19 @@ func mutationFilter(m ent.Mutation) (Filter, error) {
 		return m.Filter(), nil
 	case *ent.DataStorageMutation:
 		return m.Filter(), nil
+	case *ent.MessageChannelMutation:
+		return m.Filter(), nil
+	case *ent.MessageChannelAgentInstanceMutation:
+		return m.Filter(), nil
+	case *ent.MessageChannelBindingRequestMutation:
+		return m.Filter(), nil
 	case *ent.ModelMutation:
 		return m.Filter(), nil
 	case *ent.ProjectMutation:
 		return m.Filter(), nil
 	case *ent.PromptMutation:
+		return m.Filter(), nil
+	case *ent.PromptProtectionRuleMutation:
 		return m.Filter(), nil
 	case *ent.PromptVersionMutation:
 		return m.Filter(), nil

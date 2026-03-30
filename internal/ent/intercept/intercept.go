@@ -23,10 +23,14 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/messagechannel"
+	"github.com/looplj/axonhub/internal/ent/messagechannelagentinstance"
+	"github.com/looplj/axonhub/internal/ent/messagechannelbindingrequest"
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
+	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/promptversion"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -504,6 +508,87 @@ func (f TraverseDataStorage) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.DataStorageQuery", q)
 }
 
+// The MessageChannelFunc type is an adapter to allow the use of ordinary function as a Querier.
+type MessageChannelFunc func(context.Context, *ent.MessageChannelQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f MessageChannelFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.MessageChannelQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.MessageChannelQuery", q)
+}
+
+// The TraverseMessageChannel type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseMessageChannel func(context.Context, *ent.MessageChannelQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseMessageChannel) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseMessageChannel) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.MessageChannelQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.MessageChannelQuery", q)
+}
+
+// The MessageChannelAgentInstanceFunc type is an adapter to allow the use of ordinary function as a Querier.
+type MessageChannelAgentInstanceFunc func(context.Context, *ent.MessageChannelAgentInstanceQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f MessageChannelAgentInstanceFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.MessageChannelAgentInstanceQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.MessageChannelAgentInstanceQuery", q)
+}
+
+// The TraverseMessageChannelAgentInstance type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseMessageChannelAgentInstance func(context.Context, *ent.MessageChannelAgentInstanceQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseMessageChannelAgentInstance) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseMessageChannelAgentInstance) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.MessageChannelAgentInstanceQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.MessageChannelAgentInstanceQuery", q)
+}
+
+// The MessageChannelBindingRequestFunc type is an adapter to allow the use of ordinary function as a Querier.
+type MessageChannelBindingRequestFunc func(context.Context, *ent.MessageChannelBindingRequestQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f MessageChannelBindingRequestFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.MessageChannelBindingRequestQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.MessageChannelBindingRequestQuery", q)
+}
+
+// The TraverseMessageChannelBindingRequest type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseMessageChannelBindingRequest func(context.Context, *ent.MessageChannelBindingRequestQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseMessageChannelBindingRequest) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseMessageChannelBindingRequest) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.MessageChannelBindingRequestQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.MessageChannelBindingRequestQuery", q)
+}
+
 // The ModelFunc type is an adapter to allow the use of ordinary function as a Querier.
 type ModelFunc func(context.Context, *ent.ModelQuery) (ent.Value, error)
 
@@ -583,6 +668,33 @@ func (f TraversePrompt) Traverse(ctx context.Context, q ent.Query) error {
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.PromptQuery", q)
+}
+
+// The PromptProtectionRuleFunc type is an adapter to allow the use of ordinary function as a Querier.
+type PromptProtectionRuleFunc func(context.Context, *ent.PromptProtectionRuleQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f PromptProtectionRuleFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.PromptProtectionRuleQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.PromptProtectionRuleQuery", q)
+}
+
+// The TraversePromptProtectionRule type is an adapter to allow the use of ordinary function as Traverser.
+type TraversePromptProtectionRule func(context.Context, *ent.PromptProtectionRuleQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraversePromptProtectionRule) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraversePromptProtectionRule) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.PromptProtectionRuleQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.PromptProtectionRuleQuery", q)
 }
 
 // The PromptVersionFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -996,12 +1108,20 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.ChannelProbeQuery, predicate.ChannelProbe, channelprobe.OrderOption]{typ: ent.TypeChannelProbe, tq: q}, nil
 	case *ent.DataStorageQuery:
 		return &query[*ent.DataStorageQuery, predicate.DataStorage, datastorage.OrderOption]{typ: ent.TypeDataStorage, tq: q}, nil
+	case *ent.MessageChannelQuery:
+		return &query[*ent.MessageChannelQuery, predicate.MessageChannel, messagechannel.OrderOption]{typ: ent.TypeMessageChannel, tq: q}, nil
+	case *ent.MessageChannelAgentInstanceQuery:
+		return &query[*ent.MessageChannelAgentInstanceQuery, predicate.MessageChannelAgentInstance, messagechannelagentinstance.OrderOption]{typ: ent.TypeMessageChannelAgentInstance, tq: q}, nil
+	case *ent.MessageChannelBindingRequestQuery:
+		return &query[*ent.MessageChannelBindingRequestQuery, predicate.MessageChannelBindingRequest, messagechannelbindingrequest.OrderOption]{typ: ent.TypeMessageChannelBindingRequest, tq: q}, nil
 	case *ent.ModelQuery:
 		return &query[*ent.ModelQuery, predicate.Model, model.OrderOption]{typ: ent.TypeModel, tq: q}, nil
 	case *ent.ProjectQuery:
 		return &query[*ent.ProjectQuery, predicate.Project, project.OrderOption]{typ: ent.TypeProject, tq: q}, nil
 	case *ent.PromptQuery:
 		return &query[*ent.PromptQuery, predicate.Prompt, prompt.OrderOption]{typ: ent.TypePrompt, tq: q}, nil
+	case *ent.PromptProtectionRuleQuery:
+		return &query[*ent.PromptProtectionRuleQuery, predicate.PromptProtectionRule, promptprotectionrule.OrderOption]{typ: ent.TypePromptProtectionRule, tq: q}, nil
 	case *ent.PromptVersionQuery:
 		return &query[*ent.PromptVersionQuery, predicate.PromptVersion, promptversion.OrderOption]{typ: ent.TypePromptVersion, tq: q}, nil
 	case *ent.ProviderQuotaStatusQuery:

@@ -15,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/agentskill"
 	"github.com/looplj/axonhub/internal/ent/agenttool"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/messagechannel"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptversion"
@@ -323,6 +324,21 @@ func (_c *ProjectCreate) AddAgentSkillBindings(v ...*AgentSkill) *ProjectCreate 
 	return _c.AddAgentSkillBindingIDs(ids...)
 }
 
+// AddMessageChannelIDs adds the "message_channels" edge to the MessageChannel entity by IDs.
+func (_c *ProjectCreate) AddMessageChannelIDs(ids ...int) *ProjectCreate {
+	_c.mutation.AddMessageChannelIDs(ids...)
+	return _c
+}
+
+// AddMessageChannels adds the "message_channels" edges to the MessageChannel entity.
+func (_c *ProjectCreate) AddMessageChannels(v ...*MessageChannel) *ProjectCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMessageChannelIDs(ids...)
+}
+
 // AddProjectUserIDs adds the "project_users" edge to the UserProject entity by IDs.
 func (_c *ProjectCreate) AddProjectUserIDs(ids ...int) *ProjectCreate {
 	_c.mutation.AddProjectUserIDs(ids...)
@@ -406,12 +422,6 @@ func (_c *ProjectCreate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ProjectCreate) check() error {
-	if _, ok := _c.mutation.CreatedAt(); !ok {
-		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Project.created_at"`)}
-	}
-	if _, ok := _c.mutation.UpdatedAt(); !ok {
-		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Project.updated_at"`)}
-	}
 	if _, ok := _c.mutation.DeletedAt(); !ok {
 		return &ValidationError{Name: "deleted_at", err: errors.New(`ent: missing required field "Project.deleted_at"`)}
 	}
@@ -701,6 +711,22 @@ func (_c *ProjectCreate) createSpec() (*Project, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(agentskill.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MessageChannelsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.MessageChannelsTable,
+			Columns: []string{project.MessageChannelsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(messagechannel.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

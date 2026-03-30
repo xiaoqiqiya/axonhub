@@ -29,9 +29,13 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/messagechannel"
+	"github.com/looplj/axonhub/internal/ent/messagechannelagentinstance"
+	"github.com/looplj/axonhub/internal/ent/messagechannelbindingrequest"
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
+	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/promptversion"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -130,6 +134,21 @@ var datastorageImplementors = []string{"DataStorage", "Node"}
 // IsNode implements the Node interface check for GQLGen.
 func (*DataStorage) IsNode() {}
 
+var messagechannelImplementors = []string{"MessageChannel", "Node"}
+
+// IsNode implements the Node interface check for GQLGen.
+func (*MessageChannel) IsNode() {}
+
+var messagechannelagentinstanceImplementors = []string{"MessageChannelAgentInstance", "Node"}
+
+// IsNode implements the Node interface check for GQLGen.
+func (*MessageChannelAgentInstance) IsNode() {}
+
+var messagechannelbindingrequestImplementors = []string{"MessageChannelBindingRequest", "Node"}
+
+// IsNode implements the Node interface check for GQLGen.
+func (*MessageChannelBindingRequest) IsNode() {}
+
 var modelImplementors = []string{"Model", "Node"}
 
 // IsNode implements the Node interface check for GQLGen.
@@ -144,6 +163,11 @@ var promptImplementors = []string{"Prompt", "Node"}
 
 // IsNode implements the Node interface check for GQLGen.
 func (*Prompt) IsNode() {}
+
+var promptprotectionruleImplementors = []string{"PromptProtectionRule", "Node"}
+
+// IsNode implements the Node interface check for GQLGen.
+func (*PromptProtectionRule) IsNode() {}
 
 var promptversionImplementors = []string{"PromptVersion", "Node"}
 
@@ -408,6 +432,33 @@ func (c *Client) noder(ctx context.Context, table string, id int) (Noder, error)
 			}
 		}
 		return query.Only(ctx)
+	case messagechannel.Table:
+		query := c.MessageChannel.Query().
+			Where(messagechannel.ID(id))
+		if fc := graphql.GetFieldContext(ctx); fc != nil {
+			if err := query.collectField(ctx, true, graphql.GetOperationContext(ctx), fc.Field, nil, messagechannelImplementors...); err != nil {
+				return nil, err
+			}
+		}
+		return query.Only(ctx)
+	case messagechannelagentinstance.Table:
+		query := c.MessageChannelAgentInstance.Query().
+			Where(messagechannelagentinstance.ID(id))
+		if fc := graphql.GetFieldContext(ctx); fc != nil {
+			if err := query.collectField(ctx, true, graphql.GetOperationContext(ctx), fc.Field, nil, messagechannelagentinstanceImplementors...); err != nil {
+				return nil, err
+			}
+		}
+		return query.Only(ctx)
+	case messagechannelbindingrequest.Table:
+		query := c.MessageChannelBindingRequest.Query().
+			Where(messagechannelbindingrequest.ID(id))
+		if fc := graphql.GetFieldContext(ctx); fc != nil {
+			if err := query.collectField(ctx, true, graphql.GetOperationContext(ctx), fc.Field, nil, messagechannelbindingrequestImplementors...); err != nil {
+				return nil, err
+			}
+		}
+		return query.Only(ctx)
 	case model.Table:
 		query := c.Model.Query().
 			Where(model.ID(id))
@@ -431,6 +482,15 @@ func (c *Client) noder(ctx context.Context, table string, id int) (Noder, error)
 			Where(prompt.ID(id))
 		if fc := graphql.GetFieldContext(ctx); fc != nil {
 			if err := query.collectField(ctx, true, graphql.GetOperationContext(ctx), fc.Field, nil, promptImplementors...); err != nil {
+				return nil, err
+			}
+		}
+		return query.Only(ctx)
+	case promptprotectionrule.Table:
+		query := c.PromptProtectionRule.Query().
+			Where(promptprotectionrule.ID(id))
+		if fc := graphql.GetFieldContext(ctx); fc != nil {
+			if err := query.collectField(ctx, true, graphql.GetOperationContext(ctx), fc.Field, nil, promptprotectionruleImplementors...); err != nil {
 				return nil, err
 			}
 		}
@@ -874,6 +934,54 @@ func (c *Client) noders(ctx context.Context, table string, ids []int) ([]Noder, 
 				*noder = node
 			}
 		}
+	case messagechannel.Table:
+		query := c.MessageChannel.Query().
+			Where(messagechannel.IDIn(ids...))
+		query, err := query.CollectFields(ctx, messagechannelImplementors...)
+		if err != nil {
+			return nil, err
+		}
+		nodes, err := query.All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			for _, noder := range idmap[node.ID] {
+				*noder = node
+			}
+		}
+	case messagechannelagentinstance.Table:
+		query := c.MessageChannelAgentInstance.Query().
+			Where(messagechannelagentinstance.IDIn(ids...))
+		query, err := query.CollectFields(ctx, messagechannelagentinstanceImplementors...)
+		if err != nil {
+			return nil, err
+		}
+		nodes, err := query.All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			for _, noder := range idmap[node.ID] {
+				*noder = node
+			}
+		}
+	case messagechannelbindingrequest.Table:
+		query := c.MessageChannelBindingRequest.Query().
+			Where(messagechannelbindingrequest.IDIn(ids...))
+		query, err := query.CollectFields(ctx, messagechannelbindingrequestImplementors...)
+		if err != nil {
+			return nil, err
+		}
+		nodes, err := query.All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			for _, noder := range idmap[node.ID] {
+				*noder = node
+			}
+		}
 	case model.Table:
 		query := c.Model.Query().
 			Where(model.IDIn(ids...))
@@ -910,6 +1018,22 @@ func (c *Client) noders(ctx context.Context, table string, ids []int) ([]Noder, 
 		query := c.Prompt.Query().
 			Where(prompt.IDIn(ids...))
 		query, err := query.CollectFields(ctx, promptImplementors...)
+		if err != nil {
+			return nil, err
+		}
+		nodes, err := query.All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			for _, noder := range idmap[node.ID] {
+				*noder = node
+			}
+		}
+	case promptprotectionrule.Table:
+		query := c.PromptProtectionRule.Query().
+			Where(promptprotectionrule.IDIn(ids...))
+		query, err := query.CollectFields(ctx, promptprotectionruleImplementors...)
 		if err != nil {
 			return nil, err
 		}

@@ -2,7 +2,6 @@ package anthropic
 
 import (
 	"encoding/json"
-	"sync/atomic"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/samber/lo"
@@ -13,7 +12,8 @@ import (
 func convertMessages(messages []agent.Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var system []anthropic.TextBlockParam
 	var params []anthropic.MessageParam
-	processedRequestIndex := make(map[int]bool)
+
+	processedRoundIndex := make(map[int]bool)
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -33,12 +33,13 @@ func convertMessages(messages []agent.Message) ([]anthropic.TextBlockParam, []an
 		case agent.RoleUser:
 			params = append(params, anthropic.NewUserMessage(contentToBlocks(msg)...))
 		case agent.RoleAssistant:
-			if processedRequestIndex[msg.RequestIndex] {
+			if processedRoundIndex[msg.RoundIndex] {
 				continue
 			}
-			blocks := aggregateAssistantBlocks(messages, msg.RequestIndex)
+
+			blocks := aggregateAssistantBlocks(messages, msg.RoundIndex)
 			params = append(params, anthropic.NewAssistantMessage(blocks...))
-			processedRequestIndex[msg.RequestIndex] = true
+			processedRoundIndex[msg.RoundIndex] = true
 		case agent.RoleTool:
 			isError := msg.IsError != nil && *msg.IsError
 			content := ""
@@ -58,7 +59,7 @@ func convertMessages(messages []agent.Message) ([]anthropic.TextBlockParam, []an
 	return system, params
 }
 
-func aggregateAssistantBlocks(messages []agent.Message, requestIndex int) []anthropic.ContentBlockParamUnion {
+func aggregateAssistantBlocks(messages []agent.Message, roundIndex int) []anthropic.ContentBlockParamUnion {
 	var thinkingBlocks []anthropic.ContentBlockParamUnion
 	var textBlocks []anthropic.ContentBlockParamUnion
 	var toolUseBlocks []anthropic.ContentBlockParamUnion
@@ -67,7 +68,8 @@ func aggregateAssistantBlocks(messages []agent.Message, requestIndex int) []anth
 		if msg.Role != agent.RoleAssistant {
 			continue
 		}
-		if requestIndex > 0 && msg.RequestIndex != requestIndex {
+
+		if msg.RoundIndex != roundIndex {
 			continue
 		}
 
@@ -88,12 +90,13 @@ func aggregateAssistantBlocks(messages []agent.Message, requestIndex int) []anth
 			}
 		}
 
-		if msg.ToolUse != nil {
+		if msg.ToolCall != nil {
 			var input any
-			if msg.ToolUse.Input != "" {
-				_ = json.Unmarshal([]byte(msg.ToolUse.Input), &input)
+			if msg.ToolCall.Input != "" {
+				_ = json.Unmarshal([]byte(msg.ToolCall.Input), &input)
 			}
-			toolUseBlocks = append(toolUseBlocks, anthropic.NewToolUseBlock(msg.ToolUse.ID, input, msg.ToolUse.Name))
+
+			toolUseBlocks = append(toolUseBlocks, anthropic.NewToolUseBlock(msg.ToolCall.ID, input, msg.ToolCall.Name))
 		}
 	}
 
@@ -134,12 +137,13 @@ func contentToBlocks(msg agent.Message) []anthropic.ContentBlockParamUnion {
 func assistantToBlocks(msg agent.Message) []anthropic.ContentBlockParamUnion {
 	var blocks []anthropic.ContentBlockParamUnion
 
-	if msg.ToolUse != nil {
+	if msg.ToolCall != nil {
 		var input any
-		if msg.ToolUse.Input != "" {
-			_ = json.Unmarshal([]byte(msg.ToolUse.Input), &input)
+		if msg.ToolCall.Input != "" {
+			_ = json.Unmarshal([]byte(msg.ToolCall.Input), &input)
 		}
-		blocks = append(blocks, anthropic.NewToolUseBlock(msg.ToolUse.ID, input, msg.ToolUse.Name))
+
+		blocks = append(blocks, anthropic.NewToolUseBlock(msg.ToolCall.ID, input, msg.ToolCall.Name))
 	}
 
 	if msg.Content != nil {
@@ -215,7 +219,7 @@ func convertResponse(resp *anthropic.Message) agent.Response {
 		case anthropic.ToolUseBlock:
 			msgs = append(msgs, agent.Message{
 				Role: agent.RoleAssistant,
-				ToolUse: &agent.ToolUse{
+				ToolCall: &agent.ToolCall{
 					ID:    variant.ID,
 					Name:  variant.Name,
 					Input: string(variant.Input),
@@ -230,11 +234,6 @@ func convertResponse(resp *anthropic.Message) agent.Response {
 			Content: &agent.Content{Parts: parts},
 		}
 		msgs = append([]agent.Message{contentMsg}, msgs...)
-	}
-
-	requestIndex := int(atomic.AddInt64(&requestIndexCounter, 1))
-	for i := range msgs {
-		msgs[i].RequestIndex = requestIndex
 	}
 
 	return agent.Response{

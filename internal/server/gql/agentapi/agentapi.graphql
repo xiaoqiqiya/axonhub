@@ -19,6 +19,13 @@ type AgentBuiltinTool {
   config: JSONRawMessage
 }
 
+type AgentBuiltinSkill {
+  name: String!
+  enabled: Boolean!
+  order: Int!
+  config: JSONRawMessage
+}
+
 type AgentToolDefinition {
   name: String!
   description: String!
@@ -36,12 +43,15 @@ type AgentSkillDefinition {
 type AgentBootstrap {
   agentID: ID!
   agentName: String!
+  agentInstanceName: String!
+  createdByUserName: String!
   model: String
   reasoningEffort: String!
   systemPrompt: String!
   tools: [AgentToolDefinition!]!
   skills: [AgentSkillDefinition!]!
   builtinTools: [AgentBuiltinTool!]!
+  builtinSkills: [AgentBuiltinSkill!]!
   skillsPolicy: AgentSkillsPolicy!
   memoryPolicy: JSONRawMessage
 }
@@ -52,9 +62,7 @@ enum AgentMessageSenderType { user runtime system }
 enum AgentMessageType { chat approval_request approval_result system_event }
 
 input RegisterAgentInstanceInput {
-  name: String
   platform: String
-  description: String
   threadID: String
 }
 
@@ -101,6 +109,7 @@ input ReplyMessageInput {
   content: JSONRawMessageInput
   type: AgentMessageType = chat
   correlationID: String = ""
+  replyToMessageID: ID
 }
 
 type AgentMessage {
@@ -112,6 +121,8 @@ type AgentMessage {
   content: JSONRawMessage!
   type: AgentMessageType!
   correlationID: String!
+  externalMessageID: String
+  replyToMessageID: ID
   sequence: Int!
   status: AgentMessageStatus!
   createdAt: Time!
@@ -128,11 +139,48 @@ input AckAgentMessagesInput {
   messageIDs: [ID!]!
 }
 
+input DeployAxonClawInput {
+  name: String!
+}
+
+type DeployAxonClawResult {
+  success: Boolean!
+  error: String
+  instance: AgentInstance
+}
+
+type ModelCapabilities {
+  vision: Boolean!
+  toolCall: Boolean!
+  reasoning: Boolean!
+}
+
+type ModelPricing {
+  input: Float!
+  output: Float!
+  cacheRead: Float!
+  cacheWrite: Float!
+}
+
+type AvailableModel {
+  id: String!
+  name: String!
+  ownedBy: String!
+  type: String!
+  icon: String!
+  description: String
+  contextLength: Int!
+  maxOutputTokens: Int!
+  capabilities: ModelCapabilities
+  pricing: ModelPricing
+}
+
 type Query {
   agentBootstrap: AgentBootstrap!
   peerAgents: [PeerAgent!]!
   pullAgentMessages(input: PullAgentMessagesInput!): [AgentMessage!]!
   pullAgentMessagesToUser(afterSequence: Int, limit: Int = 50): [AgentMessage!]!
+  availableModels: [AvailableModel!]!
 }
 
 type Mutation {
@@ -140,12 +188,10 @@ type Mutation {
 
   heartbeatAgentInstance(input: HeartbeatAgentInstanceInput!): Boolean!
 
-  # Send a message from this agent to another agent (Direction: to_agent, SenderType: agent)
   sendAgentMessage(input: SendAgentMessageInput!): AgentMessage!
   
-  # Reply to the user (Direction: to_user, SenderType: agent)
   replyMessage(input: ReplyMessageInput!): AgentMessage!
-  # Acknowledge messages have been received/processed by an agent instance.
-  # Updates message status from 'pending' to 'acked'.
   ackAgentMessages(input: AckAgentMessagesInput!): Boolean!
+
+  deployAxonClaw(input: DeployAxonClawInput!): DeployAxonClawResult!
 }

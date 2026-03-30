@@ -20,9 +20,13 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/messagechannel"
+	"github.com/looplj/axonhub/internal/ent/messagechannelagentinstance"
+	"github.com/looplj/axonhub/internal/ent/messagechannelbindingrequest"
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
+	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/promptversion"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -142,8 +146,12 @@ func init() {
 	agentDescAgentBuiltinTools := agentFields[8].Descriptor()
 	// agent.DefaultAgentBuiltinTools holds the default value on creation for the agent_builtin_tools field.
 	agent.DefaultAgentBuiltinTools = agentDescAgentBuiltinTools.Default.([]objects.AgentBuiltinTool)
+	// agentDescAgentBuiltinSkills is the schema descriptor for agent_builtin_skills field.
+	agentDescAgentBuiltinSkills := agentFields[9].Descriptor()
+	// agent.DefaultAgentBuiltinSkills holds the default value on creation for the agent_builtin_skills field.
+	agent.DefaultAgentBuiltinSkills = agentDescAgentBuiltinSkills.Default.([]objects.AgentBuiltinSkill)
 	// agentDescSkillsPolicy is the schema descriptor for skills_policy field.
-	agentDescSkillsPolicy := agentFields[9].Descriptor()
+	agentDescSkillsPolicy := agentFields[10].Descriptor()
 	// agent.DefaultSkillsPolicy holds the default value on creation for the skills_policy field.
 	agent.DefaultSkillsPolicy = agentDescSkillsPolicy.Default.(objects.AgentSkillsPolicy)
 	agenthostMixin := schema.AgentHost{}.Mixin()
@@ -197,6 +205,10 @@ func init() {
 	agenthostDescSSHPrivateKey := agenthostFields[7].Descriptor()
 	// agenthost.DefaultSSHPrivateKey holds the default value on creation for the ssh_private_key field.
 	agenthost.DefaultSSHPrivateKey = agenthostDescSSHPrivateKey.Default.(string)
+	// agenthostDescDirectory is the schema descriptor for directory field.
+	agenthostDescDirectory := agenthostFields[8].Descriptor()
+	// agenthost.DefaultDirectory holds the default value on creation for the directory field.
+	agenthost.DefaultDirectory = agenthostDescDirectory.Default.(string)
 	agentinstanceMixin := schema.AgentInstance{}.Mixin()
 	agentinstance.Policy = privacy.NewPolicies(schema.AgentInstance{})
 	agentinstance.Hooks[0] = func(next ent.Mutator) ent.Mutator {
@@ -244,6 +256,10 @@ func init() {
 	agentinstanceDescPlatform := agentinstanceFields[5].Descriptor()
 	// agentinstance.DefaultPlatform holds the default value on creation for the platform field.
 	agentinstance.DefaultPlatform = agentinstanceDescPlatform.Default.(string)
+	// agentinstanceDescAxonhubBaseURL is the schema descriptor for axonhub_base_url field.
+	agentinstanceDescAxonhubBaseURL := agentinstanceFields[8].Descriptor()
+	// agentinstance.DefaultAxonhubBaseURL holds the default value on creation for the axonhub_base_url field.
+	agentinstance.DefaultAxonhubBaseURL = agentinstanceDescAxonhubBaseURL.Default.(string)
 	agentmemoryMixin := schema.AgentMemory{}.Mixin()
 	agentmemory.Policy = privacy.NewPolicies(schema.AgentMemory{})
 	agentmemory.Hooks[0] = func(next ent.Mutator) ent.Mutator {
@@ -293,15 +309,8 @@ func init() {
 			return next.Mutate(ctx, m)
 		})
 	}
-	agentmessageMixinHooks1 := agentmessageMixin[1].Hooks()
-
-	agentmessage.Hooks[1] = agentmessageMixinHooks1[0]
-	agentmessageMixinInters1 := agentmessageMixin[1].Interceptors()
-	agentmessage.Interceptors[0] = agentmessageMixinInters1[0]
 	agentmessageMixinFields0 := agentmessageMixin[0].Fields()
 	_ = agentmessageMixinFields0
-	agentmessageMixinFields1 := agentmessageMixin[1].Fields()
-	_ = agentmessageMixinFields1
 	agentmessageFields := schema.AgentMessage{}.Fields()
 	_ = agentmessageFields
 	// agentmessageDescCreatedAt is the schema descriptor for created_at field.
@@ -314,10 +323,6 @@ func init() {
 	agentmessage.DefaultUpdatedAt = agentmessageDescUpdatedAt.Default.(func() time.Time)
 	// agentmessage.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	agentmessage.UpdateDefaultUpdatedAt = agentmessageDescUpdatedAt.UpdateDefault.(func() time.Time)
-	// agentmessageDescDeletedAt is the schema descriptor for deleted_at field.
-	agentmessageDescDeletedAt := agentmessageMixinFields1[0].Descriptor()
-	// agentmessage.DefaultDeletedAt holds the default value on creation for the deleted_at field.
-	agentmessage.DefaultDeletedAt = agentmessageDescDeletedAt.Default.(int)
 	// agentmessageDescCorrelationID is the schema descriptor for correlation_id field.
 	agentmessageDescCorrelationID := agentmessageFields[7].Descriptor()
 	// agentmessage.DefaultCorrelationID holds the default value on creation for the correlation_id field.
@@ -590,7 +595,7 @@ func init() {
 	// channeloverridetemplateDescOverrideParameters is the schema descriptor for override_parameters field.
 	channeloverridetemplateDescOverrideParameters := channeloverridetemplateFields[3].Descriptor()
 	// channeloverridetemplate.DefaultOverrideParameters holds the default value on creation for the override_parameters field.
-	channeloverridetemplate.DefaultOverrideParameters = channeloverridetemplateDescOverrideParameters.Default.(string)
+	channeloverridetemplate.DefaultOverrideParameters = channeloverridetemplateDescOverrideParameters.Default.(func() string)
 	// channeloverridetemplateDescOverrideHeaders is the schema descriptor for override_headers field.
 	channeloverridetemplateDescOverrideHeaders := channeloverridetemplateFields[4].Descriptor()
 	// channeloverridetemplate.DefaultOverrideHeaders holds the default value on creation for the override_headers field.
@@ -642,6 +647,105 @@ func init() {
 	datastorageDescPrimary := datastorageFields[2].Descriptor()
 	// datastorage.DefaultPrimary holds the default value on creation for the primary field.
 	datastorage.DefaultPrimary = datastorageDescPrimary.Default.(bool)
+	messagechannelMixin := schema.MessageChannel{}.Mixin()
+	messagechannel.Policy = privacy.NewPolicies(schema.MessageChannel{})
+	messagechannel.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := messagechannel.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	messagechannelMixinHooks1 := messagechannelMixin[1].Hooks()
+
+	messagechannel.Hooks[1] = messagechannelMixinHooks1[0]
+	messagechannelMixinInters1 := messagechannelMixin[1].Interceptors()
+	messagechannel.Interceptors[0] = messagechannelMixinInters1[0]
+	messagechannelMixinFields0 := messagechannelMixin[0].Fields()
+	_ = messagechannelMixinFields0
+	messagechannelMixinFields1 := messagechannelMixin[1].Fields()
+	_ = messagechannelMixinFields1
+	messagechannelFields := schema.MessageChannel{}.Fields()
+	_ = messagechannelFields
+	// messagechannelDescCreatedAt is the schema descriptor for created_at field.
+	messagechannelDescCreatedAt := messagechannelMixinFields0[0].Descriptor()
+	// messagechannel.DefaultCreatedAt holds the default value on creation for the created_at field.
+	messagechannel.DefaultCreatedAt = messagechannelDescCreatedAt.Default.(func() time.Time)
+	// messagechannelDescUpdatedAt is the schema descriptor for updated_at field.
+	messagechannelDescUpdatedAt := messagechannelMixinFields0[1].Descriptor()
+	// messagechannel.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	messagechannel.DefaultUpdatedAt = messagechannelDescUpdatedAt.Default.(func() time.Time)
+	// messagechannel.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	messagechannel.UpdateDefaultUpdatedAt = messagechannelDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// messagechannelDescDeletedAt is the schema descriptor for deleted_at field.
+	messagechannelDescDeletedAt := messagechannelMixinFields1[0].Descriptor()
+	// messagechannel.DefaultDeletedAt holds the default value on creation for the deleted_at field.
+	messagechannel.DefaultDeletedAt = messagechannelDescDeletedAt.Default.(int)
+	// messagechannelDescDescription is the schema descriptor for description field.
+	messagechannelDescDescription := messagechannelFields[2].Descriptor()
+	// messagechannel.DefaultDescription holds the default value on creation for the description field.
+	messagechannel.DefaultDescription = messagechannelDescDescription.Default.(string)
+	// messagechannelDescSettings is the schema descriptor for settings field.
+	messagechannelDescSettings := messagechannelFields[5].Descriptor()
+	// messagechannel.DefaultSettings holds the default value on creation for the settings field.
+	messagechannel.DefaultSettings = messagechannelDescSettings.Default.(objects.MessageChannelSettings)
+	messagechannelagentinstanceMixin := schema.MessageChannelAgentInstance{}.Mixin()
+	messagechannelagentinstance.Policy = privacy.NewPolicies(schema.MessageChannelAgentInstance{})
+	messagechannelagentinstance.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := messagechannelagentinstance.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	messagechannelagentinstanceMixinFields0 := messagechannelagentinstanceMixin[0].Fields()
+	_ = messagechannelagentinstanceMixinFields0
+	messagechannelagentinstanceFields := schema.MessageChannelAgentInstance{}.Fields()
+	_ = messagechannelagentinstanceFields
+	// messagechannelagentinstanceDescCreatedAt is the schema descriptor for created_at field.
+	messagechannelagentinstanceDescCreatedAt := messagechannelagentinstanceMixinFields0[0].Descriptor()
+	// messagechannelagentinstance.DefaultCreatedAt holds the default value on creation for the created_at field.
+	messagechannelagentinstance.DefaultCreatedAt = messagechannelagentinstanceDescCreatedAt.Default.(func() time.Time)
+	// messagechannelagentinstanceDescUpdatedAt is the schema descriptor for updated_at field.
+	messagechannelagentinstanceDescUpdatedAt := messagechannelagentinstanceMixinFields0[1].Descriptor()
+	// messagechannelagentinstance.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	messagechannelagentinstance.DefaultUpdatedAt = messagechannelagentinstanceDescUpdatedAt.Default.(func() time.Time)
+	// messagechannelagentinstance.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	messagechannelagentinstance.UpdateDefaultUpdatedAt = messagechannelagentinstanceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// messagechannelagentinstanceDescEnabled is the schema descriptor for enabled field.
+	messagechannelagentinstanceDescEnabled := messagechannelagentinstanceFields[2].Descriptor()
+	// messagechannelagentinstance.DefaultEnabled holds the default value on creation for the enabled field.
+	messagechannelagentinstance.DefaultEnabled = messagechannelagentinstanceDescEnabled.Default.(bool)
+	// messagechannelagentinstanceDescConfig is the schema descriptor for config field.
+	messagechannelagentinstanceDescConfig := messagechannelagentinstanceFields[3].Descriptor()
+	// messagechannelagentinstance.DefaultConfig holds the default value on creation for the config field.
+	messagechannelagentinstance.DefaultConfig = messagechannelagentinstanceDescConfig.Default.(objects.MessageChannelAgentInstanceBinding)
+	messagechannelbindingrequestMixin := schema.MessageChannelBindingRequest{}.Mixin()
+	messagechannelbindingrequest.Policy = privacy.NewPolicies(schema.MessageChannelBindingRequest{})
+	messagechannelbindingrequest.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := messagechannelbindingrequest.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	messagechannelbindingrequestMixinFields0 := messagechannelbindingrequestMixin[0].Fields()
+	_ = messagechannelbindingrequestMixinFields0
+	messagechannelbindingrequestFields := schema.MessageChannelBindingRequest{}.Fields()
+	_ = messagechannelbindingrequestFields
+	// messagechannelbindingrequestDescCreatedAt is the schema descriptor for created_at field.
+	messagechannelbindingrequestDescCreatedAt := messagechannelbindingrequestMixinFields0[0].Descriptor()
+	// messagechannelbindingrequest.DefaultCreatedAt holds the default value on creation for the created_at field.
+	messagechannelbindingrequest.DefaultCreatedAt = messagechannelbindingrequestDescCreatedAt.Default.(func() time.Time)
+	// messagechannelbindingrequestDescUpdatedAt is the schema descriptor for updated_at field.
+	messagechannelbindingrequestDescUpdatedAt := messagechannelbindingrequestMixinFields0[1].Descriptor()
+	// messagechannelbindingrequest.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	messagechannelbindingrequest.DefaultUpdatedAt = messagechannelbindingrequestDescUpdatedAt.Default.(func() time.Time)
+	// messagechannelbindingrequest.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	messagechannelbindingrequest.UpdateDefaultUpdatedAt = messagechannelbindingrequestDescUpdatedAt.UpdateDefault.(func() time.Time)
 	modelMixin := schema.Model{}.Mixin()
 	model.Policy = privacy.NewPolicies(schema.Model{})
 	model.Hooks[0] = func(next ent.Mutator) ent.Mutator {
@@ -759,6 +863,45 @@ func init() {
 	promptDescOrder := promptFields[7].Descriptor()
 	// prompt.DefaultOrder holds the default value on creation for the order field.
 	prompt.DefaultOrder = promptDescOrder.Default.(int)
+	promptprotectionruleMixin := schema.PromptProtectionRule{}.Mixin()
+	promptprotectionrule.Policy = privacy.NewPolicies(schema.PromptProtectionRule{})
+	promptprotectionrule.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := promptprotectionrule.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	promptprotectionruleMixinHooks1 := promptprotectionruleMixin[1].Hooks()
+
+	promptprotectionrule.Hooks[1] = promptprotectionruleMixinHooks1[0]
+	promptprotectionruleMixinInters1 := promptprotectionruleMixin[1].Interceptors()
+	promptprotectionrule.Interceptors[0] = promptprotectionruleMixinInters1[0]
+	promptprotectionruleMixinFields0 := promptprotectionruleMixin[0].Fields()
+	_ = promptprotectionruleMixinFields0
+	promptprotectionruleMixinFields1 := promptprotectionruleMixin[1].Fields()
+	_ = promptprotectionruleMixinFields1
+	promptprotectionruleFields := schema.PromptProtectionRule{}.Fields()
+	_ = promptprotectionruleFields
+	// promptprotectionruleDescCreatedAt is the schema descriptor for created_at field.
+	promptprotectionruleDescCreatedAt := promptprotectionruleMixinFields0[0].Descriptor()
+	// promptprotectionrule.DefaultCreatedAt holds the default value on creation for the created_at field.
+	promptprotectionrule.DefaultCreatedAt = promptprotectionruleDescCreatedAt.Default.(func() time.Time)
+	// promptprotectionruleDescUpdatedAt is the schema descriptor for updated_at field.
+	promptprotectionruleDescUpdatedAt := promptprotectionruleMixinFields0[1].Descriptor()
+	// promptprotectionrule.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	promptprotectionrule.DefaultUpdatedAt = promptprotectionruleDescUpdatedAt.Default.(func() time.Time)
+	// promptprotectionrule.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	promptprotectionrule.UpdateDefaultUpdatedAt = promptprotectionruleDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// promptprotectionruleDescDeletedAt is the schema descriptor for deleted_at field.
+	promptprotectionruleDescDeletedAt := promptprotectionruleMixinFields1[0].Descriptor()
+	// promptprotectionrule.DefaultDeletedAt holds the default value on creation for the deleted_at field.
+	promptprotectionrule.DefaultDeletedAt = promptprotectionruleDescDeletedAt.Default.(int)
+	// promptprotectionruleDescDescription is the schema descriptor for description field.
+	promptprotectionruleDescDescription := promptprotectionruleFields[1].Descriptor()
+	// promptprotectionrule.DefaultDescription holds the default value on creation for the description field.
+	promptprotectionrule.DefaultDescription = promptprotectionruleDescDescription.Default.(string)
 	promptversionMixin := schema.PromptVersion{}.Mixin()
 	promptversion.Policy = privacy.NewPolicies(schema.PromptVersion{})
 	promptversion.Hooks[0] = func(next ent.Mutator) ent.Mutator {
@@ -895,7 +1038,7 @@ func init() {
 	// requestexecution.DefaultFormat holds the default value on creation for the format field.
 	requestexecution.DefaultFormat = requestexecutionDescFormat.Default.(string)
 	// requestexecutionDescStream is the schema descriptor for stream field.
-	requestexecutionDescStream := requestexecutionFields[12].Descriptor()
+	requestexecutionDescStream := requestexecutionFields[13].Descriptor()
 	// requestexecution.DefaultStream holds the default value on creation for the stream field.
 	requestexecution.DefaultStream = requestexecutionDescStream.Default.(bool)
 	roleMixin := schema.Role{}.Mixin()
@@ -1296,6 +1439,6 @@ func init() {
 }
 
 const (
-	Version = "v0.14.5"                                         // Version of ent codegen.
-	Sum     = "h1:Rj2WOYJtCkWyFo6a+5wB3EfBRP0rnx1fMk6gGA0UUe4=" // Sum of ent codegen.
+	Version = "v0.14.6"                                         // Version of ent codegen.
+	Sum     = "h1:/f2696BpwuWAEEG6PVGWflg6+Inrpq4pRWuNlWz/Skk=" // Sum of ent codegen.
 )

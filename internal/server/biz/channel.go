@@ -75,6 +75,7 @@ type ChannelServiceParams struct {
 	Executor      executors.ScheduledExecutor
 	Ent           *ent.Client
 	SystemService *SystemService
+	HttpClient    *httpclient.HttpClient
 }
 
 func NewChannelService(params ChannelServiceParams) *ChannelService {
@@ -84,6 +85,7 @@ func NewChannelService(params ChannelServiceParams) *ChannelService {
 		},
 		Executors:          params.Executor,
 		SystemService:      params.SystemService,
+		httpClient:         params.HttpClient,
 		channelPerfMetrics: make(map[int]*channelMetrics),
 		channelErrorCounts: make(map[int]map[int]int),
 		apiKeyErrorCounts:  make(map[int]map[string]map[int]int),
@@ -141,6 +143,8 @@ type ChannelService struct {
 
 	Executors     executors.ScheduledExecutor
 	SystemService *SystemService
+
+	httpClient *httpclient.HttpClient
 
 	enabledChannelsCache *live.Cache[[]*Channel]
 	channelNotifier      watcher.Notifier[live.CacheEvent[struct{}]]
@@ -483,6 +487,7 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 	}
 
 	mut := svc.entFromContext(ctx).Channel.UpdateOneID(id).
+		SetNillableType(input.Type).
 		SetNillableBaseURL(input.BaseURL).
 		SetNillableName(input.Name).
 		SetNillableDefaultTestModel(input.DefaultTestModel).

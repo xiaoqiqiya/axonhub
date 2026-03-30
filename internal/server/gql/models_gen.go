@@ -36,6 +36,21 @@ type APIKeyQuotaWindow struct {
 	End   *time.Time `json:"end,omitempty"`
 }
 
+type APIKeyTokenUsageStats struct {
+	APIKeyID        objects.GUID            `json:"apiKeyId"`
+	InputTokens     int                     `json:"inputTokens"`
+	OutputTokens    int                     `json:"outputTokens"`
+	CachedTokens    int                     `json:"cachedTokens"`
+	ReasoningTokens int                     `json:"reasoningTokens"`
+	TopModels       []*ModelTokenUsageStats `json:"topModels"`
+}
+
+type APIKeyTokenUsageStatsInput struct {
+	APIKeyIds    []*objects.GUID `json:"apiKeyIds,omitempty"`
+	CreatedAtGTE *time.Time      `json:"createdAtGTE,omitempty"`
+	CreatedAtLTE *time.Time      `json:"createdAtLTE,omitempty"`
+}
+
 type AddUserToProjectInput struct {
 	ProjectID objects.GUID    `json:"projectId"`
 	UserID    objects.GUID    `json:"userId"`
@@ -55,6 +70,19 @@ type AgentApprovalRequestMessage struct {
 	Content         objects.JSONRawMessage `json:"content"`
 	Sequence        int                    `json:"sequence"`
 	CreatedAt       time.Time              `json:"createdAt"`
+}
+
+type AgentBuiltinSkill struct {
+	Name    string                 `json:"name"`
+	Enabled bool                   `json:"enabled"`
+	Order   int                    `json:"order"`
+	Config  objects.JSONRawMessage `json:"config,omitempty"`
+}
+
+type AgentBuiltinSkillInput struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Order   int    `json:"order"`
 }
 
 // Minimal message view for Agent thread chat in Web UI.
@@ -105,6 +133,12 @@ type BackupPayload struct {
 	Success bool    `json:"success"`
 	Data    *string `json:"data,omitempty"`
 	Message *string `json:"message,omitempty"`
+}
+
+type BatchMessageChannelAgentInstanceBindingInput struct {
+	AgentInstanceID objects.GUID                                `json:"agentInstanceID"`
+	Enabled         bool                                        `json:"enabled"`
+	Config          *objects.MessageChannelAgentInstanceBinding `json:"config"`
 }
 
 type BrandSettings struct {
@@ -161,6 +195,25 @@ type CompleteOnboardingInput struct {
 
 type CompleteSystemModelSettingOnboardingInput struct {
 	Dummy *string `json:"dummy,omitempty"`
+}
+
+// Cost statistics grouped by API key
+type CostStatsByAPIKey struct {
+	APIKeyID   objects.GUID `json:"apiKeyId"`
+	APIKeyName string       `json:"apiKeyName"`
+	Cost       float64      `json:"cost"`
+}
+
+// Cost statistics grouped by channel
+type CostStatsByChannel struct {
+	ChannelName string  `json:"channelName"`
+	Cost        float64 `json:"cost"`
+}
+
+// Cost statistics grouped by model
+type CostStatsByModel struct {
+	ModelID string  `json:"modelId"`
+	Cost    float64 `json:"cost"`
 }
 
 type CountChannelsByTypeInput struct {
@@ -240,6 +293,14 @@ type ModelPerformanceStat struct {
 	Throughput   *float64 `json:"throughput,omitempty"`
 	TtftMs       *float64 `json:"ttftMs,omitempty"`
 	RequestCount int      `json:"requestCount"`
+}
+
+type ModelTokenUsageStats struct {
+	ModelID         string `json:"modelId"`
+	InputTokens     int    `json:"inputTokens"`
+	OutputTokens    int    `json:"outputTokens"`
+	CachedTokens    int    `json:"cachedTokens"`
+	ReasoningTokens int    `json:"reasoningTokens"`
 }
 
 type OnboardingInfo struct {
@@ -343,15 +404,19 @@ type TestChannelPayload struct {
 }
 
 type TokenStats struct {
-	TotalInputTokensToday      int `json:"totalInputTokensToday"`
-	TotalOutputTokensToday     int `json:"totalOutputTokensToday"`
-	TotalCachedTokensToday     int `json:"totalCachedTokensToday"`
-	TotalInputTokensThisWeek   int `json:"totalInputTokensThisWeek"`
-	TotalOutputTokensThisWeek  int `json:"totalOutputTokensThisWeek"`
-	TotalCachedTokensThisWeek  int `json:"totalCachedTokensThisWeek"`
-	TotalInputTokensThisMonth  int `json:"totalInputTokensThisMonth"`
-	TotalOutputTokensThisMonth int `json:"totalOutputTokensThisMonth"`
-	TotalCachedTokensThisMonth int `json:"totalCachedTokensThisMonth"`
+	TotalInputTokensToday      int        `json:"totalInputTokensToday"`
+	TotalOutputTokensToday     int        `json:"totalOutputTokensToday"`
+	TotalCachedTokensToday     int        `json:"totalCachedTokensToday"`
+	TotalInputTokensThisWeek   int        `json:"totalInputTokensThisWeek"`
+	TotalOutputTokensThisWeek  int        `json:"totalOutputTokensThisWeek"`
+	TotalCachedTokensThisWeek  int        `json:"totalCachedTokensThisWeek"`
+	TotalInputTokensThisMonth  int        `json:"totalInputTokensThisMonth"`
+	TotalOutputTokensThisMonth int        `json:"totalOutputTokensThisMonth"`
+	TotalCachedTokensThisMonth int        `json:"totalCachedTokensThisMonth"`
+	TotalInputTokensAllTime    int        `json:"totalInputTokensAllTime"`
+	TotalOutputTokensAllTime   int        `json:"totalOutputTokensAllTime"`
+	TotalCachedTokensAllTime   int        `json:"totalCachedTokensAllTime"`
+	LastUpdated                *time.Time `json:"lastUpdated,omitempty"`
 }
 
 type TokenStatsByAPIKey struct {
@@ -362,6 +427,26 @@ type TokenStatsByAPIKey struct {
 	CachedTokens    int          `json:"cachedTokens"`
 	ReasoningTokens int          `json:"reasoningTokens"`
 	TotalTokens     int          `json:"totalTokens"`
+}
+
+// Token usage statistics grouped by channel
+type TokenStatsByChannel struct {
+	ChannelName     string `json:"channelName"`
+	InputTokens     int    `json:"inputTokens"`
+	OutputTokens    int    `json:"outputTokens"`
+	CachedTokens    int    `json:"cachedTokens"`
+	ReasoningTokens int    `json:"reasoningTokens"`
+	TotalTokens     int    `json:"totalTokens"`
+}
+
+// Token usage statistics grouped by model
+type TokenStatsByModel struct {
+	ModelID         string `json:"modelId"`
+	InputTokens     int    `json:"inputTokens"`
+	OutputTokens    int    `json:"outputTokens"`
+	CachedTokens    int    `json:"cachedTokens"`
+	ReasoningTokens int    `json:"reasoningTokens"`
+	TotalTokens     int    `json:"totalTokens"`
 }
 
 type TopRequestsProjects struct {

@@ -3,7 +3,6 @@
 package ent
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/looplj/axonhub/internal/ent/agenthost"
 	"github.com/looplj/axonhub/internal/ent/agentinstance"
 	"github.com/looplj/axonhub/internal/ent/apikey"
-	"github.com/looplj/axonhub/internal/objects"
 )
 
 // AgentInstance is the model entity for the AgentInstance schema.
@@ -44,8 +42,8 @@ type AgentInstance struct {
 	APIKeyID int `json:"api_key_id,omitempty"`
 	// Last heartbeat timestamp
 	LastHeartbeatAt time.Time `json:"last_heartbeat_at,omitempty"`
-	// Deployment info - host specific deployment details
-	Deployment objects.AgentInstanceDeployment `json:"deployment,omitempty"`
+	// AxonHub base URL used by this agent instance
+	AxonhubBaseURL string `json:"axonhub_base_url,omitempty"`
 	// Instance status
 	Status agentinstance.Status `json:"status,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -64,13 +62,16 @@ type AgentInstanceEdges struct {
 	APIKey *APIKey `json:"api_key,omitempty"`
 	// Messages holds the value of the messages edge.
 	Messages []*AgentMessage `json:"messages,omitempty"`
+	// MessageChannelBindings holds the value of the message_channel_bindings edge.
+	MessageChannelBindings []*MessageChannelAgentInstance `json:"message_channel_bindings,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
 	// totalCount holds the count of the edges above.
-	totalCount [4]map[string]int
+	totalCount [5]map[string]int
 
-	namedMessages map[string][]*AgentMessage
+	namedMessages               map[string][]*AgentMessage
+	namedMessageChannelBindings map[string][]*MessageChannelAgentInstance
 }
 
 // AgentOrErr returns the Agent value or an error if the edge
@@ -115,16 +116,23 @@ func (e AgentInstanceEdges) MessagesOrErr() ([]*AgentMessage, error) {
 	return nil, &NotLoadedError{edge: "messages"}
 }
 
+// MessageChannelBindingsOrErr returns the MessageChannelBindings value or an error if the edge
+// was not loaded in eager-loading.
+func (e AgentInstanceEdges) MessageChannelBindingsOrErr() ([]*MessageChannelAgentInstance, error) {
+	if e.loadedTypes[4] {
+		return e.MessageChannelBindings, nil
+	}
+	return nil, &NotLoadedError{edge: "message_channel_bindings"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*AgentInstance) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case agentinstance.FieldDeployment:
-			values[i] = new([]byte)
 		case agentinstance.FieldID, agentinstance.FieldDeletedAt, agentinstance.FieldProjectID, agentinstance.FieldAgentID, agentinstance.FieldAgentHostID, agentinstance.FieldAPIKeyID:
 			values[i] = new(sql.NullInt64)
-		case agentinstance.FieldName, agentinstance.FieldDescription, agentinstance.FieldPlatform, agentinstance.FieldStatus:
+		case agentinstance.FieldName, agentinstance.FieldDescription, agentinstance.FieldPlatform, agentinstance.FieldAxonhubBaseURL, agentinstance.FieldStatus:
 			values[i] = new(sql.NullString)
 		case agentinstance.FieldCreatedAt, agentinstance.FieldUpdatedAt, agentinstance.FieldLastHeartbeatAt:
 			values[i] = new(sql.NullTime)
@@ -216,13 +224,11 @@ func (_m *AgentInstance) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.LastHeartbeatAt = value.Time
 			}
-		case agentinstance.FieldDeployment:
-			if value, ok := values[i].(*[]byte); !ok {
-				return fmt.Errorf("unexpected type %T for field deployment", values[i])
-			} else if value != nil && len(*value) > 0 {
-				if err := json.Unmarshal(*value, &_m.Deployment); err != nil {
-					return fmt.Errorf("unmarshal field deployment: %w", err)
-				}
+		case agentinstance.FieldAxonhubBaseURL:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field axonhub_base_url", values[i])
+			} else if value.Valid {
+				_m.AxonhubBaseURL = value.String
 			}
 		case agentinstance.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -261,6 +267,11 @@ func (_m *AgentInstance) QueryAPIKey() *APIKeyQuery {
 // QueryMessages queries the "messages" edge of the AgentInstance entity.
 func (_m *AgentInstance) QueryMessages() *AgentMessageQuery {
 	return NewAgentInstanceClient(_m.config).QueryMessages(_m)
+}
+
+// QueryMessageChannelBindings queries the "message_channel_bindings" edge of the AgentInstance entity.
+func (_m *AgentInstance) QueryMessageChannelBindings() *MessageChannelAgentInstanceQuery {
+	return NewAgentInstanceClient(_m.config).QueryMessageChannelBindings(_m)
 }
 
 // Update returns a builder for updating this AgentInstance.
@@ -321,8 +332,8 @@ func (_m *AgentInstance) String() string {
 	builder.WriteString("last_heartbeat_at=")
 	builder.WriteString(_m.LastHeartbeatAt.Format(time.ANSIC))
 	builder.WriteString(", ")
-	builder.WriteString("deployment=")
-	builder.WriteString(fmt.Sprintf("%v", _m.Deployment))
+	builder.WriteString("axonhub_base_url=")
+	builder.WriteString(_m.AxonhubBaseURL)
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Status))
@@ -351,6 +362,30 @@ func (_m *AgentInstance) appendNamedMessages(name string, edges ...*AgentMessage
 		_m.Edges.namedMessages[name] = []*AgentMessage{}
 	} else {
 		_m.Edges.namedMessages[name] = append(_m.Edges.namedMessages[name], edges...)
+	}
+}
+
+// NamedMessageChannelBindings returns the MessageChannelBindings named value or an error if the edge was not
+// loaded in eager-loading with this name.
+func (_m *AgentInstance) NamedMessageChannelBindings(name string) ([]*MessageChannelAgentInstance, error) {
+	if _m.Edges.namedMessageChannelBindings == nil {
+		return nil, &NotLoadedError{edge: name}
+	}
+	nodes, ok := _m.Edges.namedMessageChannelBindings[name]
+	if !ok {
+		return nil, &NotLoadedError{edge: name}
+	}
+	return nodes, nil
+}
+
+func (_m *AgentInstance) appendNamedMessageChannelBindings(name string, edges ...*MessageChannelAgentInstance) {
+	if _m.Edges.namedMessageChannelBindings == nil {
+		_m.Edges.namedMessageChannelBindings = make(map[string][]*MessageChannelAgentInstance)
+	}
+	if len(edges) == 0 {
+		_m.Edges.namedMessageChannelBindings[name] = []*MessageChannelAgentInstance{}
+	} else {
+		_m.Edges.namedMessageChannelBindings[name] = append(_m.Edges.namedMessageChannelBindings[name], edges...)
 	}
 }
 
